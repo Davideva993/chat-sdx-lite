@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap');
+
+#nameAndSecretCodeSection {
+    display: flex;
+    flex-direction: column;
+}
+
+#nameAndSecretCodeSection>span {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+#nameAndSecretCodeSection input {
+    width: 60%;
+}
+
+button {
+    min-width: 30%;
+
+}
+
+body {
+    display: flex;
+    height: 100vh;
+    flex-direction: column;
+    margin: 0 10px;
+    background: linear-gradient(to bottom, #484866, #111122);
+    justify-content: space-between;
+    color: grey;
+    font-family: "Roboto Condensed", sans-serif;
+    font-optical-sizing: auto;
+    font-style: normal;
+}
+
+.drawingSec {
+    display: flex;
+    flex-direction: column;
+}
+
+.stepContainer img {
+    height: 30px;
+    width: 30px;
+}
+
+.stepContainer span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 5px;
+    border: solid 6px transparent
+}
+
+h1 {
+    text-align: center;
+}
+
+.destroyChatImgContainer {
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+}
+
+#destroyChatHostP,
+#destroyChatJoinerP {
+    color: red;
+    font-weight: 600;
+    font-size: xx-large;
+    position: absolute;
+}
+
+.stepCompleted {
+    background-color: greenyellow;
+}
+
+.stepFailed {
+    background-color: red;
+}
+
+.stepContainer {
+    display: flex;
+    align-items: center;
+}
+
+.tempKeyImgContainer {
+    border: solid grey 6px !important;
+}
+
+.initKeyImgContainerBorderEffect {
+    border: solid #FF0000 6px !important;
+    transition: border 2s ease;
+
+}
+
+.defKeyImgContainerBorderEffect {
+    border: solid rgb(54, 153, 0) 6px !important;
+    transition: border 2s ease;
+
+}
+
+.lockStatusImgContainerBorderEffect {
+    border: solid #0011FF 6px !important;
+    transition: border 2s ease;
+}
+
+b {
+    color: gray;
+    text-decoration: underline;
+    font-size: larger;
+}
+
+
+#sendSection {
+    display: flex;
+    position: sticky;
+    top: 85vh;
+}

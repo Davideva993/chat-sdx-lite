@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat SXD - Home</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/argon2-browser@1.18.0/dist/argon2-bundled.min.js"></script>
+
+</head>
+
+<body>
+    <header>
+        <h1>Chat SDX</h1>
+        <section class="dynamic landingPage">
+            <button type="button" id="hostBtnStart">Host a chat</button>
+            <button type="button" id="joinBtnStart">Join a chat</button>
+        </section>
+        <section class="dynamic chatPage">
+            <button type="button" id="newWindowBtn">New window</button>
+            <button type="button" id="destroyChatBtn">Destroy chat</button>
+        </section>
+        <section id="nameAndSecretCodeSection" class="dynamic joinPage hostPage">
+            <span>
+                <label for="roomNameInput">Room name (will be auto-filled):</label>
+                <input type="text" id="roomNameInput" readonly name="roomName">
+            </span>
+            <span>
+                <label for="roomSecretCodeInput1">Room SecretCode 1:</label>
+                <input type="text" placeholder="At least 6 alphanumeric characters" id="roomSecretCodeInput1"
+                    name="roomSecretCode1">
+            </span>
+            <span>
+                <label for="roomSecretCodeInput2">Room SecretCode 2:</label>
+                <input type="text" placeholder="At least 12 random chars (A/a + 0-9 + symbols)"
+                    id="roomSecretCodeInput2" name="roomSecretCode2">
+            </span>
+            <span>
+                <button type="button" id="backButton">Back to home</button>
+                <button type="button" id="reloadButton">Reload-clean</button>
+
+                <button type="button" id="joinBtnEnd" class="dynamic joinPage">Join this chat</button>
+                <button type="button" id="hostBtnEnd" class="dynamic hostPage">Host this chat</button>
+            </span>
+        </section>
+
+    </header>
+    <main>
+        <section id="centralSection">
+            <section class="dynamic chatPage">
+                <h2 id="roomNameH2">(here the room name)</h2>
+                <ul id="ulChat"></ul>
+            </section>
+            <section class="dynamic landingPage">
+                <h2>Key Principles</h2>
+                <ul>
+                    <li>No unnecessary user data (phone, email, account...)</li>
+                    <li>Sensitive data and keys never leaves the browser in cleartext</li>
+                    <li>Security over comfort: session aborts instantly if compromise is suspected</li>
+                    <li>Server stores only the last 6 encrypted messages (real or fake), temporarily</li>
+                    <li>No cookies, no persistent storage, and no global variables — reloading the page wipes
+                        everything. The room and all browser-side data auto‑clear after 6 hours of real inactivity.</li>
+                    <li>Every message encrypted with a unique key, computed locally, and unknown to the server</li>
+                    <li>Knowing one message key is not sufficient to derive previous or next keys</li>
+                    <li>Each message is padded and when the chat stops an automatic fake-messages system starts</li>
+                    <li>It’s suggested to host it through Tor</li>
+                </ul>
+            </section>
+            <section class="dynamic hostPage">
+                <h2>Host a chat: next steps:</h2>
+                <ol>
+                    <li>Choose the secret words</li>
+                    <li>Click "host this chat"</li>
+                    <li>Share the roomName and secret words with the other user via a <b>temporary secure channel</b>
+                    </li>
+                    <li>Wait for the other user to join</li>
+                </ol>
+                <p>If the page reloads, the room is lost.</p>
+            </section>
+        </section>
+        <section class="dynamic hostPage drawingSec">
+            <article class="stepContainer" id="hostTempKeyDrawingContainer">
+                <span class="tempKeyImgContainer">
+                    <img id="tempKeyHostImg" src="./assets/tempKey.webp" alt="tempKey img">
+                </span>
+                <p id="tempKeyHostLegend"></p>
+            </article>
+            <article class="stepContainer" id="hostDestroyChatDrawingContainer">
+                <span class="destroyChatImgContainer">
+                    <p id="destroyChatHostP"></p>
+                    <img id="destroyChatHostImg" src="./assets/destroyChat.webp" alt="DestroyChat img">
+                </span>
+                <p id="destroyChatHostLegend"></p>
+            </article>
+            <article class="stepContainer" id="hostInitKeyDrawingContainer">
+                <span class="initKeyImgContainer">
+
+                    <img id="initKeyHostImg" src="./assets/initKey.webp" alt="initKey img">
+                </span>
+
+                <p id="initKeyHostLegend"></p>
+            </article>
+            <article class="stepContainer" id="hostDefKeyDrawingContainer">
+                <span class="defKeyImgContainer">
+
+                    <img id="defKeyHostImg" src="./assets/defKey.webp" alt="defKey img">
+                </span>
+
+                <p id="defKeyHostLegend"></p>
+            </article>
+            <article class="stepContainer" id="hostLockStatusContainer">
+                <span class="lockStatusImgContainer">
+
+                    <img id="lockStatusHostImg" src="./assets/unlocked.webp" alt="lock status img">
+                </span>
+                <p id="lockStatusHostLegend"></p>
+            </article>
+        </section>
+
+        <section class="dynamic joinPage">
+            <h2>Join a chat: next steps:</h2>
+            <ol>
+                <li>Use a <b>temporary secure channel</b> to obtain the room code and secret words</li>
+                <li>Enter the information and click “Join this chat”</li>
+            </ol>
+            <p>If the page reloads, the room is lost.</p>
+        </section>
+        <section class="dynamic joinPage drawingSec">
+            <article class="stepContainer" id="joinerTempKeyDrawingContainer">
+                <span class="tempKeyImgContainer">
+                    <img id="tempKeyJoinerImg" src="./assets/tempKey.webp" alt="tempKey img">
+                </span>
+                <p id="tempKeyJoinerLegend"></p>
+            </article>
+            <article class="stepContainer" id="joinerInitKeyDrawingContainer">
+                <span class="initKeyImgContainer">
+                    <img id="initKeyJoinerImg" src="./assets/initKey.webp" alt="initKey img">
+                </span>
+                <p id="initKeyJoinerLegend"></p>
+            </article>
+            <article class="stepContainer" id="joinerDefKeyDrawingContainer">
+                <span class="defKeyImgContainer">
+                    <img id="defKeyJoinerImg" src="./assets/defKey.webp" alt="defKey img">
+                </span>
+                <p id="defKeyJoinerLegend"></p>
+            </article>
+            <article class="stepContainer" id="joinerDestroyChatDrawingContainer">
+                <span class="destroyChatImgContainer">
+                    <p id="destroyChatJoinerP"></p>
+                    <img id="destroyChatJoinerImg" src="./assets/destroyChat.webp" alt="DestroyChat img">
+                </span>
+                <p id="destroyChatJoinerLegend"></p>
+            </article>
+            <article class="stepContainer" id="joinerLockStatusContainer">
+                <span class="lockStatusImgContainer">
+                    <img id="lockStatusJoinerImg" src="./assets/unlocked.webp" alt="lock status img">
+                </span>
+                <p id="lockStatusJoinerLegend"></p>
+            </article>
+        </section>
+        </section>
+        <section id="sendSection" class="dynamic chatPage">
+            <input id="messageInput" placeholder="Write here your message" type="text">
+            <span style="display: flex; flex-direction: column;">
+                <button id="sendMsgBtn">Send msg</button>
+                <input type="file" id="fileInput" accept="image/*,application/pdf" capture="environment" style="display:none">
+                <button id="sendFileBtn">Send file</button> 
+                <button id="callBtn">Call</button>
+            </span>
+    </main>
+    <footer>
+        © 2025 Chat SDX • <a href="https://github.com/Davideva993/Chat-SDX">AGPL-3.0 source</a>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
