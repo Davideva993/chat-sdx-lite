@@ -2,7 +2,6 @@ import { Room, Message } from '../models/db.js';
 import { Op } from 'sequelize';
 const timers = {};
 import webSocketController from './webSocketController.js';
-// Controller for chat routes
 
 
 const chatCtrl = {
@@ -91,7 +90,7 @@ joinerSendsMessage: async (req, res) => {
       );
 
       await Message.destroy({
-        where: { roomName, sender: "joiner" }
+        where: { roomName, order, sender: "joiner" }
       });
     } catch (err) {
       console.error("WebSocket error (joiner):", err);

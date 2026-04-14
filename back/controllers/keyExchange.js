@@ -57,7 +57,7 @@ const keyExchangeCtrl = {
       await room.update({ joinerToken });
       setTimeout(() => {
         Room.update(
-          { nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null },
+          { nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: true }, // true so ws can reconnect
           { where: { roomName } }
         ).catch(() => { })
       }, 12_000)

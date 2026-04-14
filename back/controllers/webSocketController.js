@@ -61,12 +61,25 @@ const webSocketController = {
         if (roomSockets[`${role}WS`] === ws) {
           roomSockets[`${role}WS`] = null;
         }
-        // Clean up map if both clients are disconnected
         if (!roomSockets.hostWS && !roomSockets.joinerWS) {
           activeRooms.delete(roomName);
         }
       });
+
       ws.on('error', (err) => console.error('WebSocket error:', err));
+      ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data);
+          if (msg.message && (msg.sender === 'host' || msg.sender === 'joiner')) {
+            webSocketController.broadcastMessage(roomName, msg, role);
+          }
+          else if (msg.type === 'webrtc-signaling') {
+            webSocketController.broadcastSignaling(roomName, msg.payload, role);
+          }
+        } catch (e) {
+          console.error('Invalid WebSocket message:', e);
+        }
+      }); 
     } catch (e) {
       console.error('WebSocket connection error:', e);
       ws.close(4003, 'Server error');
@@ -91,7 +104,26 @@ const webSocketController = {
       receiverWS.send(JSON.stringify(messageObj));
       console.log(`📤 Encrypted message forwarded to ${receiverRole} in room ${roomName}`);
     }
+  },
+    /**
+   * Forwards WebRTC signaling (offer, answer, ICE candidate, hangup, decline)
+   */
+  broadcastSignaling(roomName, payload, senderRole) {
+    const roomSockets = activeRooms.get(roomName);
+    if (!roomSockets) return;
+
+    const receiverRole = senderRole === 'host' ? 'joiner' : 'host';
+    const receiverWS = roomSockets[`${receiverRole}WS`];
+
+    if (receiverWS && receiverWS.readyState === WebSocket.OPEN) {
+      receiverWS.send(JSON.stringify({
+        type: 'webrtc-signaling',
+        payload
+      }));
+      console.log(`📡 WebRTC signaling forwarded to ${receiverRole} in room ${roomName}`);
+    }
   }
 };
+
 
 export default webSocketController;

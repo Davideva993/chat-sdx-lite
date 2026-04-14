@@ -47,6 +47,37 @@ function app() {
     reloadButton.addEventListener("click", () => { location.reload() })
 
 
+    function displaySavedRooms() {
+        const ul = document.getElementById("savedRooms")
+        ul.innerHTML = ""
+        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}")
+        Object.keys(myConversations).forEach(room => {
+            const li = document.createElement("li")
+            li.textContent = room
+            li.style.cursor = "pointer"
+            li.style.padding = "10px"
+            li.style.margin = "6px 0"
+            li.style.backgroundColor = "#222"
+            li.style.borderRadius = "6px"
+            li.style.listStyle = "none"
+            li.addEventListener("click", () => {
+                restoreSavedRoom(room)
+            })
+            ul.appendChild(li)
+        })
+    }
+
+    async function restoreSavedRoom(room) {
+        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}")
+        const saved = myConversations[room]
+        if (!saved) {
+            alert("Room not found in localStorage")
+            return
+        }
+        await loadChat(room)
+    }
+
+
 
     //--------------------------------------Design functions
     function updateDynamicElements(classToShow) {
@@ -58,6 +89,10 @@ function app() {
                 dynamicElements[i].style.display = "";
             }
         }
+        if (classToShow === "landingPage") {
+            displaySavedRooms()
+        }
+
         const label = document.querySelector('label[for="roomNameInput"]')
         if (classToShow == "chatPage") {
             document.getElementById("centralSection").style.height = "60vh"
@@ -269,6 +304,298 @@ function app() {
         hostGeneratesInitKey()
         hostRegistersRoom()
 
+    }
+    function hexToUint8Array(hex) {
+        if (hex.length % 2 !== 0) throw new Error("Invalid hex string");
+        const arr = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            arr[i / 2] = parseInt(hex.substr(i, 2), 16);
+        }
+        return arr;
+    }
+
+
+    async function loadChat(requestedRoomName) {
+        if (!requestedRoomName || requestedRoomName.trim() === "") {
+            alert("Room name is required.");
+            return false;
+        }
+        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
+        const savedChat = myConversations[requestedRoomName];
+        if (!savedChat) {
+            console.log(savedChat)
+            alert(`No saved conversation found for room: ${requestedRoomName}`);
+            return false;
+        }
+        if (!savedChat.ciphertext) {
+            // if direct restore without password 
+            const sessionData = savedChat;
+            secretCode2 = sessionData.secretCode2;
+            cumulativeNonce = new Uint8Array(sessionData.cumulativeNonce);
+            const curKeyBytes = new Uint8Array(sessionData.currentDefKeyRaw);
+            console.log("restore direct currentDefKey length:", curKeyBytes.length);
+            currentDefKey = await crypto.subtle.importKey(
+                'raw',
+                curKeyBytes.buffer,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            const ul = document.getElementById("ulChat");
+            ul.innerHTML = "";
+            chatMessages = []
+            sessionData.messages.forEach(msg => {
+                if (msg.type === "file") {
+                    const bytes = new Uint8Array(msg.bytes);
+                    addFileMessage(bytes, msg.ext, msg.user);
+                } else {
+                    addTextMessage(msg.text, msg.user);
+                }
+            });
+            alert(`✅ Conversation "${requestedRoomName}" loaded successfully (no password)!`);
+            console.log(`Loaded unencrypted conversation: ${requestedRoomName}`);
+            updateDynamicElements("chatPage");
+            if (chatWS) {
+                try { chatWS.close(); } catch (e) { }
+            }
+            console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
+
+            connectChatWebSocket();
+            document.getElementById("roomNameH2").textContent = requestedRoomName;
+            return true;
+        }
+        const pwd = prompt(`Enter the password to recover conversation "${requestedRoomName}"`);
+        if (!pwd) {
+            return false;
+        }
+        try {
+            const salt = new Uint8Array(savedChat.salt);
+            const iv = new Uint8Array(savedChat.iv);
+            const ciphertext = new Uint8Array(savedChat.ciphertext);
+            const passwordBuffer = new TextEncoder().encode(pwd);
+            const argon2Params = {
+                pass: passwordBuffer,
+                salt: salt,
+                time: 3,
+                mem: 32768,
+                hashLen: 32,
+                parallelism: 1,
+                type: argon2.Argon2id,
+            };
+            const hash = await argon2.hash(argon2Params);
+            let keyBytes;
+            if (hash.hash instanceof Uint8Array) {
+                keyBytes = hash.hash;
+            } else if (hash.hash instanceof ArrayBuffer) {
+                keyBytes = new Uint8Array(hash.hash);
+            } else if (typeof hash.hash === 'string') {
+                keyBytes = hexToUint8Array(hash.hash);
+            } else {
+                throw new Error("Unsupported Argon2 hash format");
+            }
+
+            if (keyBytes.length !== 16 && keyBytes.length !== 32) {
+                console.error("Derived key length invalid:", keyBytes.length);
+                alert("Errore interno: chiave derivata non valida.");
+                return false;
+            }
+            console.log("derived master key length:", keyBytes.length);
+            const masterKey = await crypto.subtle.importKey(
+                'raw',
+                keyBytes.buffer,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            const roomNameBuffer = new TextEncoder().encode(requestedRoomName);
+            const encryptedRoomNameTest = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv },
+                masterKey,
+                roomNameBuffer
+            );
+            const testArray = new Uint8Array(encryptedRoomNameTest);
+            const savedArray = new Uint8Array(savedChat.encryptedRoomName);
+            console.log("Test encrypted length:", testArray.length);
+            console.log("Saved encrypted length:", savedArray.length);
+
+            if (testArray.length !== savedArray.length ||
+                !testArray.every((byte, i) => byte === savedArray[i])) {
+                console.log("❌ Password mismatch - lengths or bytes differ");
+
+                alert("Wrong password");
+                return false;
+            }
+            console.log("✅ Password verified successfully");
+            const decryptedBuffer = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv },
+                masterKey,
+                ciphertext
+            );
+            const sessionData = JSON.parse(new TextDecoder().decode(decryptedBuffer));
+            roomName = sessionData.roomName
+            console.log(sessionData)
+
+            console.log(roomName)
+            if (sessionData.hostToken) {
+                hostToken = sessionData.hostToken
+                userName = "host"
+
+            }
+            else if (sessionData.joinerToken) {
+                joinerToken = sessionData.joinerToken
+                console.log(joinerToken, roomName)
+                userName = "joiner"
+            }
+
+            secretCode2 = sessionData.secretCode2;
+            cumulativeNonce = new Uint8Array(sessionData.cumulativeNonce);
+            const curKeyBytes2 = new Uint8Array(sessionData.currentDefKeyRaw);
+            console.log("restored currentDefKey length:", curKeyBytes2.length);
+            if (curKeyBytes2.length !== 16 && curKeyBytes2.length !== 32) {
+                throw new Error("Invalid currentDefKey length: " + curKeyBytes2.length);
+            }
+            currentDefKey = await crypto.subtle.importKey(
+                'raw',
+                curKeyBytes2,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            const ul = document.getElementById("ulChat");
+            ul.innerHTML = "";
+            chatMessages = []
+
+            sessionData.messages.forEach(msg => {
+                console.log(sessionData)
+                if (msg.type === "file") {
+                    const bytes = new Uint8Array(msg.bytes);
+                    addFileMessage(bytes, msg.ext, msg.user);
+                } else {
+                    addTextMessage(msg.text, msg.user);
+                }
+            });
+            alert(`✅ Conversation "${requestedRoomName}" loaded and decrypted successfully !`);
+            console.log(`Loaded encrypted conversation: ${requestedRoomName}`);
+            updateDynamicElements("chatPage");
+            if (chatWS) {
+                try { chatWS.close(); } catch (e) { }
+            }
+            console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
+
+            connectChatWebSocket();
+
+            document.getElementById("roomNameH2").textContent = roomName;
+            return true;
+        } catch (error) {
+            console.error("Load error:", error);
+            return false;
+        }
+    }
+
+
+
+    let chatMessages = [];
+
+    async function saveChat() {
+        const pwd = prompt("Enter a password... and don't forget it");
+        if (!pwd || pwd.length < 4) {
+            alert("Password too short. Minimum 4 characters.");
+            return false;
+        }
+        try {
+            const salt = crypto.getRandomValues(new Uint8Array(32));
+            const passwordBuffer = new TextEncoder().encode(pwd);
+            const argon2Params = {
+                pass: passwordBuffer,
+                salt: salt,
+                time: 3,
+                mem: 32768,
+                hashLen: 32,
+                parallelism: 1,
+                type: argon2.Argon2id,
+            };
+            const hash = await argon2.hash(argon2Params);
+            let keyBytes;
+            if (hash.hash instanceof Uint8Array) {
+                keyBytes = hash.hash;
+            } else if (hash.hash instanceof ArrayBuffer) {
+                keyBytes = new Uint8Array(hash.hash);
+            } else if (typeof hash.hash === 'string') {
+                keyBytes = hexToUint8Array(hash.hash);
+            } else {
+                throw new Error("Unsupported Argon2 hash format");
+            }
+
+            if (keyBytes.length !== 16 && keyBytes.length !== 32) {
+                console.error("Derived key length invalid:", keyBytes.length);
+                return false;
+            }
+            const masterKey = await crypto.subtle.importKey(
+                'raw',
+                keyBytes.buffer,
+                { name: 'AES-GCM' },
+                true,
+                ['encrypt', 'decrypt']
+            );
+            const exported = await crypto.subtle.exportKey('raw', currentDefKey);
+            const currentDefKeyRaw = Array.from(new Uint8Array(exported));
+            let sessionData
+            if (userName === "host") {
+                sessionData = {
+                    secretCode2: secretCode2,
+                    cumulativeNonce: Array.from(cumulativeNonce),
+                    currentDefKeyRaw: currentDefKeyRaw,
+                    hostToken: hostToken,
+                    roomName: roomName,
+                    messages: chatMessages,
+                };
+            } else if (userName === "joiner") {
+                sessionData = {
+                    secretCode2: secretCode2,
+                    cumulativeNonce: Array.from(cumulativeNonce),
+                    currentDefKeyRaw: currentDefKeyRaw,
+                    joinerToken: joinerToken,
+                    roomName: roomName,
+                    messages: chatMessages,
+                };
+            }
+
+
+
+            const dataString = JSON.stringify(sessionData);
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encryptedBuffer = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv },
+                masterKey,
+                new TextEncoder().encode(dataString)
+            );
+            const encryptedRoomName = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv },
+                masterKey,
+                new TextEncoder().encode(roomName)
+            );
+
+            const conversationEntry = {
+                [roomName]: {
+                    encryptedRoomName: Array.from(new Uint8Array(encryptedRoomName)),
+                    version: 1,
+                    salt: Array.from(salt),
+                    iv: Array.from(iv),
+                    ciphertext: Array.from(new Uint8Array(encryptedBuffer))
+                }
+            };
+            let myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
+            myConversations[roomName] = conversationEntry[roomName];
+            localStorage.setItem("myConversations", JSON.stringify(myConversations));
+            displaySavedRooms()
+            alert(`✅ Conversation "${roomName}" saved successfully!`);
+            console.log(`Saved conversation: ${roomName}`);
+            return true;
+        } catch (error) {
+            console.error("Save error:", error);
+            alert("Failed to save the conversation. Check console.");
+            return false;
+        }
     }
 
 
@@ -899,6 +1226,7 @@ function app() {
             alert("host is certified!")
             defKey = null
             updateDynamicElements("chatPage")
+
             connectChatWebSocket();
         } else {
             alert("host is not certified")
@@ -915,6 +1243,139 @@ function app() {
     let currentDefKey = null
     let chatWS = null;
     let lastSentFileInfo = null;
+    // WebRTC VoIP variables 
+    let localStream = null;
+    let peerConnection = null;
+    let isInCall = false;
+    let incomingOffer = null;
+
+    const ICE_SERVERS = {
+        iceServers: [
+            { urls: 'stun:stun.ekiga.net' },
+            { urls: 'stun:stun.stunprotocol.org:3478' },
+            { urls: 'stun:stun.voiparound.com' },
+            {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
+        ]
+    };
+
+
+    // WEBRTC VOIP: All audio is end-to-end encrypted with DTLS-SRTP 
+    async function startCall() {
+        if (isInCall) return;
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            peerConnection = new RTCPeerConnection(ICE_SERVERS);
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log('🧊 ICE connection state:', peerConnection.iceConnectionState);
+            };
+            peerConnection.onicegatheringstatechange = () => {
+                console.log('🧊 ICE gathering state:', peerConnection.iceGatheringState);
+            };
+            // Add local microphone
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            // Send ICE candidates to the other user via WebSocket
+            peerConnection.onicecandidate = e => {
+                if (e.candidate) sendSignaling({ type: 'candidate', candidate: e.candidate });
+            };
+            // Play incoming audio when received
+            peerConnection.ontrack = e => {
+                const remoteAudio = new Audio();
+                remoteAudio.srcObject = e.streams[0];
+                remoteAudio.play();
+            };
+            // Create and send offer
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            sendSignaling({ type: 'offer', sdp: offer });
+            isInCall = true;
+            updateCallUI();
+        } catch (err) {
+            console.error(err);
+            alert("Microphone access is required to make calls.");
+        }
+    }
+
+    function sendSignaling(payload) {
+        if (chatWS?.readyState === WebSocket.OPEN) {
+            chatWS.send(JSON.stringify({
+                type: 'webrtc-signaling',
+                payload
+            }));
+        }
+    }
+
+    async function handleSignalingMessage(payload) {
+        if (payload.type === 'offer') {
+            incomingOffer = payload;
+            document.getElementById("incomingCallBox").style.display = "block";
+            return;
+        }
+        if (payload.type === 'answer' && peerConnection) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        }
+        if (payload.type === 'candidate' && peerConnection) {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate));
+        }
+        if (payload.type === 'decline' || payload.type === 'hangup') {
+            hangUp();
+        }
+    }
+
+    async function acceptIncomingCall() {
+        if (!incomingOffer) return;
+        peerConnection = new RTCPeerConnection(ICE_SERVERS);
+        peerConnection.oniceconnectionstatechange = () => {
+            console.log('🧊 ICE connection state:', peerConnection.iceConnectionState);
+        };
+        peerConnection.onicegatheringstatechange = () => {
+            console.log('🧊 ICE gathering state:', peerConnection.iceGatheringState);
+        };
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingOffer.sdp));
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        sendSignaling({ type: 'answer', sdp: answer });
+        incomingOffer = null;
+        isInCall = true;
+        document.getElementById("incomingCallBox").style.display = "none";
+        updateCallUI();
+    }
+
+    function declineIncomingCall() {
+        sendSignaling({ type: 'decline' });
+        incomingOffer = null;
+        document.getElementById("incomingCallBox").style.display = "none";
+    }
+
+    function hangUp() {
+        if (peerConnection) peerConnection.close();
+        if (localStream) localStream.getTracks().forEach(t => t.stop());
+        peerConnection = null;
+        localStream = null;
+        isInCall = false;
+        incomingOffer = null;
+        document.getElementById("incomingCallBox").style.display = "none";
+        updateCallUI();
+        sendSignaling({ type: 'hangup' });
+    }
+
+    function updateCallUI() {
+        const btn = document.getElementById("callBtn");
+        btn.textContent = isInCall ? "🔴 Hang up" : "📞 Call";
+        btn.style.backgroundColor = isInCall ? "#c00" : "";
+    }
+
+
 
 
 
@@ -965,8 +1426,11 @@ function app() {
 
 
     function connectChatWebSocket() {
-        if (chatWS && chatWS.readyState === WebSocket.OPEN) return;
-        let token
+        console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
+
+        if (chatWS) {
+            try { chatWS.close(); } catch (e) { }
+        } let token
         if (userName == "host") {
             token = hostToken
         } else if (userName == "joiner") {
@@ -978,11 +1442,11 @@ function app() {
             console.log('✅ Chat WebSocket connected (real-time, no polling)');
         };
         chatWS.onmessage = async (event) => {
-            try {
-                const messageObj = JSON.parse(event.data);
-                await decryptTheMessage(messageObj.message);   
-            } catch (e) {
-                console.error('Error processing WS message:', e);
+            const data = JSON.parse(event.data);
+            if (data.type === 'webrtc-signaling') {
+                await handleSignalingMessage(data.payload);
+            } else {
+                await decryptTheMessage(data.message || data);
             }
         };
         chatWS.onclose = () => {
@@ -992,16 +1456,21 @@ function app() {
         chatWS.onerror = (err) => console.error('WebSocket error:', err);
     }
 
-
     document.getElementById("sendMsgBtn").addEventListener("click", () => { encryptTheMessage("msg", document.getElementById("messageInput").value) })
     document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
-    document.getElementById("newWindowBtn").addEventListener("click", openNewWindow)
+    document.getElementById("saveChatBtn").addEventListener("click", saveChat)
+    document.getElementById("callBtn").addEventListener("click", () => {
+        if (isInCall) {
+            hangUp();
+        } else {
+            startCall();
+        }
+    });
 
+    // Incoming call buttons
+    document.getElementById("acceptCallBtn").addEventListener("click", acceptIncomingCall);
+    document.getElementById("declineCallBtn").addEventListener("click", declineIncomingCall);
 
-    function openNewWindow() {
-        const url = location.href;
-        window.open(url, '_blank');
-    }
 
 
 
@@ -1043,6 +1512,7 @@ function app() {
     }
 
     async function joinerSendsMessage(base64EncryptedMsg) {
+        console.log(roomName, joinerToken, base64EncryptedMsg)
         try {
             const response = await fetch('http://localhost:3001/api/joinerSendsMessage', {
                 method: 'POST',
@@ -1097,7 +1567,7 @@ function app() {
             "raw",
             hash.hash,
             { name: "AES-GCM" },
-            false,
+            true,
             ["encrypt", "decrypt"]
         )
         currentDefKey = newKey
@@ -1223,11 +1693,11 @@ function app() {
             }
             if (sendOk) {
                 if (msgOrFileOrCall === "file" && lastSentFileInfo) {
-                    showFile(lastSentFileInfo.bytes, lastSentFileInfo.ext, "me");
+                    addFileMessage(lastSentFileInfo.bytes, lastSentFileInfo.ext, "me");
                 }
                 if (msgOrFileOrCall === "msg") {
                     let message = document.getElementById("messageInput").value;
-                    showMsg(message, "me");
+                    addTextMessage(message, "me");
                 }
                 sendOk = false;
                 // ratchet update for cumulativeNonce (maintain 16 bytes)
@@ -1266,8 +1736,6 @@ function app() {
             const msgBytes = full.slice(0, msgLength);           // payload of message/file: [3-digit length + message + random padding] or [4-char ext + 7-digit length + file bytes + padding up to 1 MiB]
             const nextAesRaw = full.slice(msgLength, msgLength + 32);
             const derivationNonce = full.slice(msgLength + 32);
-
-            // === DETECT MESSAGE TYPE ===
             const first3 = new TextDecoder("utf-8", { fatal: false }).decode(msgBytes.slice(0, 3));
             if (/^\d{3}$/.test(first3) && first3 !== "000") {
                 // Text message path
@@ -1275,8 +1743,7 @@ function app() {
                 const realLen = parseInt(first3, 10);
                 if (realLen < 0 || realLen > msgBytes.byteLength - 3) throw new Error("Invalid message length");
                 const realMessage = paddedMsg.slice(3, 3 + realLen);
-                showMsg(realMessage, "partner");
-                // Only update ratchet after successful handling
+                addTextMessage(realMessage, "partner");
                 if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
                     cumulativeNonce = derivationNonce;
                 } else {
@@ -1300,7 +1767,7 @@ function app() {
                 }
                 const fileBytes = msgBytes.slice(11, 11 + realLen);
                 const safeExt = (extRaw || "bin").toString().replace(/[^a-zA-Z0-9]/g, '').slice(0, 4) || 'bin';
-                showFile(fileBytes, safeExt || "bin", "partner");
+                addFileMessage(fileBytes, safeExt || "bin", "partner");
                 // Only update ratchet after successful handling
                 if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
                     cumulativeNonce = derivationNonce;
@@ -1322,54 +1789,68 @@ function app() {
 
     function showFile(fileBytes, ext, user) {
         const ul = document.getElementById('ulChat');
-        const safeExt = (ext || 'bin')
-            .toString()
-            .replace(/[^a-zA-Z0-9]/g, '')
-            .slice(0, 4) || 'bin';
+
         const mimeMap = {
-            'png': 'image/png',
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'gif': 'image/gif',
-            'webp': 'image/webp',
-            'pdf': 'application/pdf'
+            png: "image/png",
+            jpg: "image/jpeg",
+            jpeg: "image/jpeg",
+            gif: "image/gif",
+            webp: "image/webp",
+            pdf: "application/pdf"
         };
-        const mimeType = mimeMap[safeExt.toLowerCase()] || 'application/octet-stream';
-        const blobData = new Uint8Array(fileBytes);
-        const blob = new Blob([blobData], { type: mimeType });
+
+        const mimeType = mimeMap[ext.toLowerCase()] || "application/octet-stream";
+        const blob = new Blob([fileBytes], { type: mimeType });
         const url = URL.createObjectURL(blob);
+
         const li = document.createElement('li');
-        if (mimeType.startsWith('image/')) {
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `image.${safeExt}`;
-            const img = document.createElement('img');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `file.${ext}`;
+
+        if (mimeType.startsWith("image/")) {
+            const img = document.createElement("img");
             img.src = url;
-            img.alt = "Sent image";
             img.style.maxWidth = "80%";
             img.style.borderRadius = "8px";
             img.style.margin = "5px 0";
-            img.style.cursor = "pointer";
             a.appendChild(img);
-            li.appendChild(a);
         } else {
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `file.${safeExt}`;
+            a.textContent = `📎 Download ${ext.toUpperCase()}`;
             a.style.color = "blue";
             a.style.textDecoration = "underline";
-            a.textContent = `📎 Download ${safeExt.toUpperCase()}`;
-
-            li.appendChild(a);
         }
+
+        li.appendChild(a);
+
         if (user === "partner") {
             li.style.color = "red";
             li.style.textShadow = "1px 1px white";
-        } else if (user === "me") {
+        } else {
             li.style.color = "green";
             li.style.textShadow = "1px 1px white";
         }
+
         ul.appendChild(li);
+    }
+
+    function addTextMessage(text, user) {
+        chatMessages.push({
+            type: "text",
+            text,
+            user
+        });
+        showMsg(text, user);
+    }
+
+    function addFileMessage(fileBytes, ext, user) {
+        chatMessages.push({
+            type: "file",
+            bytes: Array.from(fileBytes),
+            ext,
+            user
+        });
+        showFile(fileBytes, ext, user);
     }
 
 
@@ -1380,18 +1861,18 @@ function app() {
         const li = document.createElement('li');
         li.textContent = message;
         li.style.fontSize = "larger";
-        if (user == "partner") {
-            li.style.color = "red"
-            li.style.textShadow = "1px 1px white"
-            ul.appendChild(li);
+
+        if (user === "partner") {
+            li.style.color = "red";
+            li.style.textShadow = "1px 1px white";
+        } else {
+            li.style.color = "green";
+            li.style.textShadow = "1px 1px white";
         }
-        else if (user == "me") {
-            li.style.color = "green"
-            li.style.textShadow = "1px 1px white"
-            ul.appendChild(li);
-        }
-        document.getElementById("messageInput").value = ""
+
+        ul.appendChild(li);
     }
+
 
 
     async function deleteRoom() {
