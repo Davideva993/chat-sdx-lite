@@ -1,4 +1,4 @@
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { Room } from '../models/db.js';
 
 const activeRooms = new Map();
@@ -106,7 +106,10 @@ const webSocketController = {
     }
   },
     /**
-   * Forwards WebRTC signaling (offer, answer, ICE candidate, hangup, decline)
+   * Forwards WebRTC signaling payloads (offer, answer, ICE candidate, hangup, decline)
+   * between the two participants in a room.
+   * The server acts as a blind relay — it does NOT inspect or modify the SDP/ICE data.
+   * Media flows peer-to-peer (or via TURN), never through this server.
    */
   broadcastSignaling(roomName, payload, senderRole) {
     const roomSockets = activeRooms.get(roomName);

@@ -1243,12 +1243,23 @@ function app() {
     let currentDefKey = null
     let chatWS = null;
     let lastSentFileInfo = null;
-    // WebRTC VoIP variables 
-    let localStream = null;
-    let peerConnection = null;
-    let isInCall = false;
-    let incomingOffer = null;
+    // ============================================
+    // WebRTC VoIP — Audio-only peer-to-peer calls
+    // Audio is encrypted in transit by DTLS-SRTP (built into WebRTC).
+    // Signaling (offer/answer/ICE) is sent over the existing chat WebSocket.
+    // The server only relays signaling — it never sees media or keys.
+    // ============================================
+    let localStream = null;              // Local microphone MediaStream
+    let peerConnection = null;           // RTCPeerConnection for the current call
+    let isInCall = false;                // Whether the user is currently in a call
+    let incomingOffer = null;            // Stores an incoming SDP offer until the user accepts
+    let pendingCandidates = [];          // ICE candidates buffered before peerConnection is ready
+    let ringingTimeout = null;           // Timeout that auto-declines unanswered calls after 60s
+    let remoteAudioElement = null;       // <audio> element that plays the remote party's audio
 
+    // ICE servers used for NAT traversal.
+    // STUN servers discover the public IP; TURN servers relay media when direct connection fails.
+    // WARNING: These are public/free servers — unreliable in production.
     const ICE_SERVERS = {
         iceServers: [
             { urls: 'stun:stun.ekiga.net' },
@@ -1268,42 +1279,63 @@ function app() {
     };
 
 
-    // WEBRTC VOIP: All audio is end-to-end encrypted with DTLS-SRTP 
+    // Start an outgoing audio call.
+    // 1. Get microphone access from the user.
+    // 2. Create an RTCPeerConnection with the configured ICE servers.
+    // 3. Add the local audio track to the connection.
+    // 4. Create an SDP offer and set it as the local description.
+    // 5. Send the offer to the peer via the chat WebSocket (signaling relay).
+    // 6. Start a 60-second ringing timeout — auto-hangup if no answer.
     async function startCall() {
         if (isInCall) return;
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             peerConnection = new RTCPeerConnection(ICE_SERVERS);
             peerConnection.oniceconnectionstatechange = () => {
-                console.log('🧊 ICE connection state:', peerConnection.iceConnectionState);
+                console.log(' ICE connection state:', peerConnection.iceConnectionState);
             };
             peerConnection.onicegatheringstatechange = () => {
-                console.log('🧊 ICE gathering state:', peerConnection.iceGatheringState);
+                console.log(' ICE gathering state:', peerConnection.iceGatheringState);
             };
-            // Add local microphone
+            // Add each local audio track to the peer connection so the remote side receives it
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-            // Send ICE candidates to the other user via WebSocket
+            // Trickle ICE: send each discovered candidate to the peer through the signaling channel
             peerConnection.onicecandidate = e => {
                 if (e.candidate) sendSignaling({ type: 'candidate', candidate: e.candidate });
             };
-            // Play incoming audio when received
+            // When the remote stream arrives, attach it to an <audio> element and play
             peerConnection.ontrack = e => {
-                const remoteAudio = new Audio();
-                remoteAudio.srcObject = e.streams[0];
-                remoteAudio.play();
+                if (remoteAudioElement) {
+                    remoteAudioElement.remove();
+                }
+                remoteAudioElement = new Audio();
+                remoteAudioElement.autoplay = true;
+                remoteAudioElement.srcObject = e.streams[0];
+                remoteAudioElement.play().catch(() => {});
             };
-            // Create and send offer
+            // Create the SDP offer and set it as our local description
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
+            // Send the offer to the peer via the WebSocket signaling relay
             sendSignaling({ type: 'offer', sdp: offer });
             isInCall = true;
             updateCallUI();
+            // Auto-hangup after 60 seconds if the peer doesn't answer
+            ringingTimeout = setTimeout(() => {
+                if (isInCall && peerConnection) {
+                    console.log('Call timeout - no answer');
+                    hangUp(true);
+                }
+            }, 60000);
         } catch (err) {
             console.error(err);
             alert("Microphone access is required to make calls.");
         }
     }
 
+    // Send a WebRTC signaling payload (offer, answer, ICE candidate, hangup, decline)
+    // to the peer through the existing chat WebSocket connection.
+    // The server relays it without inspecting the content.
     function sendSignaling(payload) {
         if (chatWS?.readyState === WebSocket.OPEN) {
             chatWS.send(JSON.stringify({
@@ -1313,68 +1345,155 @@ function app() {
         }
     }
 
+    // Handle incoming WebRTC signaling messages relayed by the server.
+    // - 'offer': store it and show the incoming-call popup
+    // - 'answer': set as remote description on the caller's peer connection
+    // - 'candidate': buffer if peerConnection isn't ready yet, otherwise add immediately
+    // - 'hangup' / 'decline': tear down the call
     async function handleSignalingMessage(payload) {
         if (payload.type === 'offer') {
             incomingOffer = payload;
             document.getElementById("incomingCallBox").style.display = "block";
+            // Auto-decline after 60 seconds of ringing
+            ringingTimeout = setTimeout(() => {
+                if (incomingOffer) {
+                    console.log('Ringing timeout - auto declining');
+                    declineIncomingCall();
+                }
+            }, 60000);
             return;
         }
         if (payload.type === 'answer' && peerConnection) {
+            if (ringingTimeout) {
+                clearTimeout(ringingTimeout);
+                ringingTimeout = null;
+            }
             await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            return;
         }
-        if (payload.type === 'candidate' && peerConnection) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate));
+        if (payload.type === 'candidate') {
+            // Only add ICE candidates once the remote description is set.
+            // Otherwise buffer them for later (they arrive before the user accepts the call).
+            if (peerConnection && peerConnection.remoteDescription) {
+                try {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate));
+                } catch (e) {
+                    console.warn('Failed to add ICE candidate:', e);
+                }
+            } else {
+                pendingCandidates.push(payload.candidate);
+            }
+            return;
         }
         if (payload.type === 'decline' || payload.type === 'hangup') {
-            hangUp();
+            hangUp(true);
         }
     }
 
+    // Accept an incoming call.
+    // 1. Create a new RTCPeerConnection.
+    // 2. Set the remote description from the stored offer.
+    // 3. Add any buffered ICE candidates that arrived before acceptance.
+    // 4. Get microphone access and add tracks to the connection.
+    // 5. Create an SDP answer and send it back via signaling.
     async function acceptIncomingCall() {
         if (!incomingOffer) return;
-        peerConnection = new RTCPeerConnection(ICE_SERVERS);
-        peerConnection.oniceconnectionstatechange = () => {
-            console.log('🧊 ICE connection state:', peerConnection.iceConnectionState);
-        };
-        peerConnection.onicegatheringstatechange = () => {
-            console.log('🧊 ICE gathering state:', peerConnection.iceGatheringState);
-        };
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingOffer.sdp));
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        sendSignaling({ type: 'answer', sdp: answer });
-        incomingOffer = null;
-        isInCall = true;
-        document.getElementById("incomingCallBox").style.display = "none";
-        updateCallUI();
+        if (ringingTimeout) {
+            clearTimeout(ringingTimeout);
+            ringingTimeout = null;
+        }
+        try {
+            peerConnection = new RTCPeerConnection(ICE_SERVERS);
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log(' ICE connection state:', peerConnection.iceConnectionState);
+            };
+            peerConnection.onicegatheringstatechange = () => {
+                console.log(' ICE gathering state:', peerConnection.iceGatheringState);
+            };
+            // Set the caller's offer as our remote description
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingOffer.sdp));
+            // Apply any ICE candidates that arrived before we had a peerConnection
+            for (const candidate of pendingCandidates) {
+                try {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (e) {
+                    console.warn('Failed to add buffered ICE candidate:', e);
+                }
+            }
+            pendingCandidates = [];
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            peerConnection.onicecandidate = e => {
+                if (e.candidate) sendSignaling({ type: 'candidate', candidate: e.candidate });
+            };
+            peerConnection.ontrack = e => {
+                if (remoteAudioElement) {
+                    remoteAudioElement.remove();
+                }
+                remoteAudioElement = new Audio();
+                remoteAudioElement.autoplay = true;
+                remoteAudioElement.srcObject = e.streams[0];
+                remoteAudioElement.play().catch(() => {});
+            };
+            // Create and send the SDP answer
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            sendSignaling({ type: 'answer', sdp: answer });
+            incomingOffer = null;
+            isInCall = true;
+            document.getElementById("incomingCallBox").style.display = "none";
+            updateCallUI();
+        } catch (err) {
+            console.error('Failed to accept call:', err);
+            alert("Failed to accept the call.");
+            hangUp(true);
+        }
     }
 
+    // Decline an incoming call — send a decline signal and clear state.
     function declineIncomingCall() {
+        if (ringingTimeout) {
+            clearTimeout(ringingTimeout);
+            ringingTimeout = null;
+        }
         sendSignaling({ type: 'decline' });
         incomingOffer = null;
+        pendingCandidates = [];
         document.getElementById("incomingCallBox").style.display = "none";
     }
 
-    function hangUp() {
+    // End the current call.
+    // Cleans up peer connection, local media, and remote audio element.
+    // Sends a hangup signal unless the hangup was initiated by the remote peer.
+    function hangUp(remoteInitiated = false) {
+        if (ringingTimeout) {
+            clearTimeout(ringingTimeout);
+            ringingTimeout = null;
+        }
         if (peerConnection) peerConnection.close();
         if (localStream) localStream.getTracks().forEach(t => t.stop());
+        if (remoteAudioElement) {
+            remoteAudioElement.remove();
+            remoteAudioElement = null;
+        }
         peerConnection = null;
         localStream = null;
         isInCall = false;
         incomingOffer = null;
+        pendingCandidates = [];
         document.getElementById("incomingCallBox").style.display = "none";
         updateCallUI();
-        sendSignaling({ type: 'hangup' });
+        if (!remoteInitiated) {
+            sendSignaling({ type: 'hangup' });
+        }
     }
 
+    // Update the call button text and color based on call state.
     function updateCallUI() {
         const btn = document.getElementById("callBtn");
-        btn.textContent = isInCall ? "🔴 Hang up" : "📞 Call";
+        btn.textContent = isInCall ? " Hang up" : " Call";
         btn.style.backgroundColor = isInCall ? "#c00" : "";
     }
-
 
 
 

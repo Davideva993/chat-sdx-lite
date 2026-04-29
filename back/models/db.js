@@ -66,7 +66,7 @@ const Message = sequelize.define('Message', {
     allowNull: false,
   },
   order: {
-    type: DataTypes.NUMBER,
+    type: DataTypes.INTEGER,
     allowNull: false,
   },
 
