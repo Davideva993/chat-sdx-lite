@@ -22,6 +22,7 @@ router.post('/joinerSendsMessage', chatCtrl.joinerSendsMessage);
 router.post('/deleteRoom', chatCtrl.deleteRoom);
 
 
+router.get('/getTurnCredentials', turnCtrl.getTurnCredentials);
 
 
 

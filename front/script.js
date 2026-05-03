@@ -81,7 +81,6 @@ function app() {
 
     //--------------------------------------Design functions
     function updateDynamicElements(classToShow) {
-
         for (let i = 0; i < dynamicElements.length; i++) {
             if (!dynamicElements[i].classList.contains(classToShow)) {
                 dynamicElements[i].style.display = "none";
@@ -661,7 +660,7 @@ function app() {
             alert("Secret code not valid")
             return
         }
-        fetch('http://localhost:3001/api/hostRegistersRoom', {
+        fetch('api/hostRegistersRoom', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
         })
@@ -687,7 +686,7 @@ function app() {
 
     //2)The host asks each 1,5s if the other user (joiner) joined the room.
     function hostAsksForJoiner() {
-        fetch('http://localhost:3001/api/hostAsksForJoiner', {
+        fetch('api/hostAsksForJoiner', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -765,7 +764,7 @@ function app() {
     }
 
     function joinerFindsRoom() {
-        fetch('http://localhost:3001/api/joinerFindsRoom', {
+        fetch('api/joinerFindsRoom', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -870,7 +869,7 @@ function app() {
     }
     async function hostSendsEncryptedInitKeyAndNonce(encryptedInitKey) {
         timer("host", "start")
-        fetch('http://localhost:3001/api/hostSendsEncryptedInitKeyAndNonce', {
+        fetch('api/hostSendsEncryptedInitKeyAndNonce', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -897,7 +896,7 @@ function app() {
     //5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey
     function joinerAsksForEncryptedInitKeyAndNonce() {
         stepsAnimation("initKey", "joiner", "completed")
-        fetch('http://localhost:3001/api/joinerAsksForEncryptedInitKeyAndNonce', {
+        fetch('api/joinerAsksForEncryptedInitKeyAndNonce', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -995,7 +994,7 @@ function app() {
             const base64EncryptedDefKey = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
             showBorderEffect("joiner", "defKeyImgContainer");
             // Send to server
-            await fetch('http://localhost:3001/api/joinerSendsEncryptedDefKey', {
+            await fetch('api/joinerSendsEncryptedDefKey', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1020,7 +1019,7 @@ function app() {
 
     //7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
     function hostAsksForEncryptedDefKey() {
-        fetch('http://localhost:3001/api/hostAsksForEncryptedDefKey', {
+        fetch('api/hostAsksForEncryptedDefKey', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1137,7 +1136,7 @@ function app() {
 
 
     function hostSendsEncryptedSecret(base64EncryptedHash) {
-        fetch('http://localhost:3001/api/hostSendsEncryptedSecret', {
+        fetch('api/hostSendsEncryptedSecret', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1162,7 +1161,7 @@ function app() {
     async function joinerAsksForEncryptedSecret() {
         try {
             stepsAnimation("validated", "joiner", "completed")
-            const response = await fetch('http://localhost:3001/api/joinerAsksForEncryptedSecret', {
+            const response = await fetch('api/joinerAsksForEncryptedSecret', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1260,23 +1259,8 @@ function app() {
     // ICE servers used for NAT traversal.
     // STUN servers discover the public IP; TURN servers relay media when direct connection fails.
     // WARNING: These are public/free servers — unreliable in production.
-    const ICE_SERVERS = {
-        iceServers: [
-            { urls: 'stun:stun.ekiga.net' },
-            { urls: 'stun:stun.stunprotocol.org:3478' },
-            { urls: 'stun:stun.voiparound.com' },
-            {
-                urls: 'turn:openrelay.metered.ca:80',
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            },
-            {
-                urls: 'turn:openrelay.metered.ca:443',
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            }
-        ]
-    };
+  
+let iceServers =null
 
 
     // Start an outgoing audio call.
@@ -1286,41 +1270,47 @@ function app() {
     // 4. Create an SDP offer and set it as the local description.
     // 5. Send the offer to the peer via the chat WebSocket (signaling relay).
     // 6. Start a 60-second ringing timeout — auto-hangup if no answer.
-    async function startCall() {
+    
+
+          async function startCall() {
         if (isInCall) return;
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            peerConnection = new RTCPeerConnection(ICE_SERVERS);
+            const ice = await fetchIceServers();
+peerConnection = new RTCPeerConnection(ice);
+            // Imposta invio candidati ICE subito
+            peerConnection.onicecandidate = e => {
+                if (e.candidate) {
+                    console.log("CANDIDATE:", e.candidate.candidate);
+                    sendSignaling({ type: 'candidate', candidate: e.candidate });
+                }
+            };
             peerConnection.oniceconnectionstatechange = () => {
-                console.log(' ICE connection state:', peerConnection.iceConnectionState);
+                console.log('ICE connection state:', peerConnection.iceConnectionState);
             };
             peerConnection.onicegatheringstatechange = () => {
-                console.log(' ICE gathering state:', peerConnection.iceGatheringState);
+                console.log('ICE gathering state:', peerConnection.iceGatheringState);
             };
-            // Add each local audio track to the peer connection so the remote side receives it
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-            // Trickle ICE: send each discovered candidate to the peer through the signaling channel
-            peerConnection.onicecandidate = e => {
-                if (e.candidate) sendSignaling({ type: 'candidate', candidate: e.candidate });
-            };
-            // When the remote stream arrives, attach it to an <audio> element and play
+            // Quando arriva lo stream remoto
             peerConnection.ontrack = e => {
-                if (remoteAudioElement) {
-                    remoteAudioElement.remove();
+                let audioEl = document.getElementById("remoteAudio");
+                if (!audioEl) {
+                    audioEl = new Audio();
+                    audioEl.id = "remoteAudio";
+                    audioEl.autoplay = true;
+                    document.body.appendChild(audioEl);
                 }
-                remoteAudioElement = new Audio();
-                remoteAudioElement.autoplay = true;
-                remoteAudioElement.srcObject = e.streams[0];
-                remoteAudioElement.play().catch(() => {});
+                audioEl.srcObject = e.streams[0];
+                audioEl.play().catch(err => console.error("Caller audio failed:", err));
             };
-            // Create the SDP offer and set it as our local description
+            // Aggiungi tracce locali
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            // Crea offerta
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
-            // Send the offer to the peer via the WebSocket signaling relay
             sendSignaling({ type: 'offer', sdp: offer });
             isInCall = true;
             updateCallUI();
-            // Auto-hangup after 60 seconds if the peer doesn't answer
             ringingTimeout = setTimeout(() => {
                 if (isInCall && peerConnection) {
                     console.log('Call timeout - no answer');
@@ -1332,7 +1322,6 @@ function app() {
             alert("Microphone access is required to make calls.");
         }
     }
-
     // Send a WebRTC signaling payload (offer, answer, ICE candidate, hangup, decline)
     // to the peer through the existing chat WebSocket connection.
     // The server relays it without inspecting the content.
@@ -1363,12 +1352,21 @@ function app() {
             }, 60000);
             return;
         }
-        if (payload.type === 'answer' && peerConnection) {
+               if (payload.type === 'answer' && peerConnection) {
             if (ringingTimeout) {
                 clearTimeout(ringingTimeout);
                 ringingTimeout = null;
             }
             await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            // Add buffered ICE candidates that arrived before the answer
+            for (const candidate of pendingCandidates) {
+                try {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (e) {
+                    console.warn('Failed to add buffered ICE candidate:', e);
+                }
+            }
+            pendingCandidates = [];
             return;
         }
         if (payload.type === 'candidate') {
@@ -1403,12 +1401,28 @@ function app() {
             ringingTimeout = null;
         }
         try {
-            peerConnection = new RTCPeerConnection(ICE_SERVERS);
+             const ice = await fetchIceServers();
+peerConnection = new RTCPeerConnection(ice);
+            // Set up ontrack FIRST to avoid missing remote stream
+            peerConnection.ontrack = e => {
+                console.log("REMOTE TRACK:", e.streams[0]?.getTracks());
+                if (!e.streams[0]) {
+                    console.error("No remote stream received!");
+                    return;
+                }
+                if (!remoteAudioElement) {
+                    remoteAudioElement = new Audio();                 
+                    remoteAudioElement.autoplay = true;
+                    document.body.appendChild(remoteAudioElement);
+                }
+                remoteAudioElement.srcObject = e.streams[0];
+                remoteAudioElement.play().catch(err => console.error("Callee audio failed:", err));
+            };
             peerConnection.oniceconnectionstatechange = () => {
-                console.log(' ICE connection state:', peerConnection.iceConnectionState);
+                console.log('ICE connection state:', peerConnection.iceConnectionState);
             };
             peerConnection.onicegatheringstatechange = () => {
-                console.log(' ICE gathering state:', peerConnection.iceGatheringState);
+                console.log('ICE gathering state:', peerConnection.iceGatheringState);
             };
             // Set the caller's offer as our remote description
             await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingOffer.sdp));
@@ -1422,18 +1436,13 @@ function app() {
             }
             pendingCandidates = [];
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log("LOCAL TRACKS:", localStream.getTracks());
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
             peerConnection.onicecandidate = e => {
-                if (e.candidate) sendSignaling({ type: 'candidate', candidate: e.candidate });
-            };
-            peerConnection.ontrack = e => {
-                if (remoteAudioElement) {
-                    remoteAudioElement.remove();
+                if (e.candidate) {
+                    console.log("CANDIDATE:", e.candidate.candidate);
+                    sendSignaling({ type: 'candidate', candidate: e.candidate });
                 }
-                remoteAudioElement = new Audio();
-                remoteAudioElement.autoplay = true;
-                remoteAudioElement.srcObject = e.streams[0];
-                remoteAudioElement.play().catch(() => {});
             };
             // Create and send the SDP answer
             const answer = await peerConnection.createAnswer();
@@ -1555,7 +1564,8 @@ function app() {
         } else if (userName == "joiner") {
             token = joinerToken
         }
-        const wsUrl = `ws://localhost:3001?roomName=${roomName}&token=${token}`;
+        const wsUrl = `wss://${location.host}/ws?roomName=${roomName}&token=${token}`;
+
         chatWS = new WebSocket(wsUrl);
         chatWS.onopen = () => {
             console.log('✅ Chat WebSocket connected (real-time, no polling)');
@@ -1574,7 +1584,16 @@ function app() {
         };
         chatWS.onerror = (err) => console.error('WebSocket error:', err);
     }
-
+async function fetchIceServers() {
+  if (iceServers) return iceServers;
+  const token = userName === "host" ? hostToken : joinerToken;
+  if (!token || !roomName) throw new Error("Not authenticated for calls");
+  const response = await fetch(`api/getTurnCredentials?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(token)}`);
+  if (!response.ok) throw new Error("Failed to fetch TURN credentials");
+  const data = await response.json();
+  iceServers = data;
+  return iceServers;
+}
     document.getElementById("sendMsgBtn").addEventListener("click", () => { encryptTheMessage("msg", document.getElementById("messageInput").value) })
     document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
     document.getElementById("saveChatBtn").addEventListener("click", saveChat)
@@ -1596,7 +1615,7 @@ function app() {
 
     async function hostSendsMessage(base64EncryptedMsg) {
         try {
-            const response = await fetch('http://localhost:3001/api/hostSendsMessage', {
+            const response = await fetch('api/hostSendsMessage', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1633,7 +1652,7 @@ function app() {
     async function joinerSendsMessage(base64EncryptedMsg) {
         console.log(roomName, joinerToken, base64EncryptedMsg)
         try {
-            const response = await fetch('http://localhost:3001/api/joinerSendsMessage', {
+            const response = await fetch('api/joinerSendsMessage', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2002,7 +2021,7 @@ function app() {
             token = joinerToken
         }
         try {
-            const res = await fetch('http://localhost:3001/api/deleteRoom', {
+            const res = await fetch('api/deleteRoom', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, roomName })
