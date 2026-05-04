@@ -1,5 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap');
 
+:root {
+
+    --c8: #4db8ff;
+    --c9: #cfe7ff;
+    --c18: #1b2330;
+
+
+    --c23: greenyellow;
+    --c24: gray;
+    --c25: #FF0000;
+    --c26: #369900;
+    --c27: #0011FF;
+}
+#messageInput{
+    width: 75%;
+}
+
 #nameAndSecretCodeSection {
     display: flex;
     flex-direction: column;
@@ -15,20 +32,102 @@
     width: 60%;
 }
 
-button {
-    min-width: 30%;
-
+.centerBtnsSec {
+    display: flex;
+    justify-content: space-between;
 }
+
+button {
+    font-family: "Inter", "Roboto", sans-serif;
+    color: var(--c9);
+    background: var(--c18);
+    border: 1px solid var(--c9);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.18s;
+}
+
+button:hover {
+    border-color: var(--c8);
+    box-shadow: 0 0 12px var(--c8);
+    background: var(--c18);
+}
+
+button:active {
+    transform: scale(0.97);
+    border-color: var(c18);
+    box-shadow: 0 0 16px var(--c8);
+}
+
+label {
+    color: var(--c9);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.85;
+}
+
+
+input,
+textarea,
+select {
+    background: var(--c24);
+    border: 1px solid #2e3a45;
+    color: var(--c9);
+    font-family: "Inter", "Roboto", sans-serif;
+    border-radius: 6px;
+    transition: 0.18s;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--c8);
+    box-shadow: 0 0 10px var(--c20);
+    background: var(--c18);
+}
+
+ol {
+    list-style: decimal-leading-zero;
+    color: var(--c9);
+    font-family: "Inter", "Roboto", sans-serif;
+}
+
+li {
+    border-left: 2px solid var(--c8);
+    padding-left: 0.5em;
+    margin-bottom: 0.3em;
+}
+
+
+@keyframes scan {
+    0% {
+        transform: translateY(-100%);
+    }
+
+    100% {
+        transform: translateY(100%);
+    }
+}
+
+#joinBtnStart,
+#hostBtnStart {
+    width: 45%;
+}
+
+body {
+    background: radial-gradient(circle at 30% 20%, var(--c18), var(--c18) 70%);
+    color: var(--c9);
+    font-family: "Inter", "Roboto", sans-serif;
+}
+
+
 
 body {
     display: flex;
     height: 100vh;
     flex-direction: column;
     margin: 0 10px;
-    background: linear-gradient(to bottom, #484866, #111122);
     justify-content: space-between;
-    color: grey;
-    font-family: "Roboto Condensed", sans-serif;
     font-optical-sizing: auto;
     font-style: normal;
 }
@@ -59,6 +158,10 @@ h1 {
     justify-content: flex-start !important;
     align-items: flex-start !important;
 }
+#destroyChatBtn, #saveChatBtn{
+    width: 45%;
+}
+
 
 #destroyChatHostP,
 #destroyChatJoinerP {
@@ -69,11 +172,11 @@ h1 {
 }
 
 .stepCompleted {
-    background-color: greenyellow;
+    background-color: var(--c23);
 }
 
 .stepFailed {
-    background-color: red;
+    background-color: var(--c25);
 }
 
 .stepContainer {
@@ -82,28 +185,28 @@ h1 {
 }
 
 .tempKeyImgContainer {
-    border: solid grey 6px !important;
+    border: solid var(c24) 6px !important;
 }
 
 .initKeyImgContainerBorderEffect {
-    border: solid #FF0000 6px !important;
+    border: solid var(--c25) 6px !important;
     transition: border 2s ease;
 
 }
 
 .defKeyImgContainerBorderEffect {
-    border: solid rgb(54, 153, 0) 6px !important;
+    border: solid var(--c26) 6px !important;
     transition: border 2s ease;
 
 }
 
 .lockStatusImgContainerBorderEffect {
-    border: solid #0011FF 6px !important;
+    border: solid var(--c27) 6px !important;
     transition: border 2s ease;
 }
 
 b {
-    color: gray;
+    color: var(--c24);
     text-decoration: underline;
     font-size: larger;
 }
@@ -113,4 +216,7 @@ b {
     display: flex;
     position: sticky;
     top: 85vh;
+    justify-content: center;
+    justify-content: space-between;
+    width: 100%;
 }

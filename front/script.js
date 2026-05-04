@@ -20,6 +20,12 @@ function app() {
     'use strict'
     console.log("Argon2:", typeof argon2 !== "undefined" ? "ok" : "error");
     const dynamicElements = document.getElementsByClassName("dynamic")
+    const c18 = "#1b2330"
+    const c9 = "#cfe7ff"
+    const c25 = "#FF0000"
+    const c26 = "#369900"
+    const c8 = "#4db8ff";
+
     let userName
     let tempKey
     let keyPair
@@ -51,20 +57,33 @@ function app() {
         const ul = document.getElementById("savedRooms")
         ul.innerHTML = ""
         const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}")
-        Object.keys(myConversations).forEach(room => {
-            const li = document.createElement("li")
-            li.textContent = room
-            li.style.cursor = "pointer"
-            li.style.padding = "10px"
-            li.style.margin = "6px 0"
-            li.style.backgroundColor = "#222"
-            li.style.borderRadius = "6px"
-            li.style.listStyle = "none"
-            li.addEventListener("click", () => {
-                restoreSavedRoom(room)
+        if (Object.keys(myConversations).length == 0) {
+            console.log("ok")
+            ul.innerHTML = "<li>No saved conversations</li>"
+        }
+        else {
+            Object.keys(myConversations).forEach(room => {
+                const li = document.createElement("li")
+                li.textContent = room
+                li.style.cursor = "pointer"
+                li.style.padding = "10px"
+                li.style.margin = "6px 0"
+                li.style.backgroundColor = c18
+                li.style.borderRadius = "6px"
+                li.style.listStyle = "none"
+                li.addEventListener("mouseenter", () => {
+                    li.style.boxShadow = "0 0 12px " + c8
+                })
+                li.addEventListener("mouseleave", () => {
+                    li.style.boxShadow = "none"
+                })
+                li.addEventListener("click", () => {
+                    restoreSavedRoom(room)
+                })
+                ul.appendChild(li)
             })
-            ul.appendChild(li)
-        })
+        }
+
     }
 
     async function restoreSavedRoom(room) {
@@ -98,15 +117,17 @@ function app() {
         }
         else if (classToShow == "hostPage") {
             document.getElementById("roomNameInput").readOnly = true;
-            document.getElementById("roomNameInput").style.background = "grey";
+            document.getElementById("roomNameInput").style.background = "#1a1f27";
             document.getElementById("roomNameInput").style.outline = "none";
             document.getElementById("roomNameInput").value = "";
             label.textContent = "Room name (will be auto-filled)"
         }
         else if (classToShow == "joinPage") {
             document.getElementById("roomNameInput").readOnly = false;
-            document.getElementById("roomNameInput").style.background = "white";
+            document.getElementById("roomNameInput").style.background = "#141a22; ";
             document.getElementById("roomNameInput").style.outline = "initial";
+            document.getElementById("roomNameInput").style.color = c9;
+
 
             label.textContent = "Room name (please ask the other user)"
         }
@@ -132,22 +153,25 @@ function app() {
                     document.getElementById("tempKeyHostLegend").textContent = "Working on it..."
                 }
                 if (nextStep == "initKey") {
+                    document.querySelectorAll(".stepSection").forEach(el => {
+                        el.style.display = "none";
+                    })
                     document.getElementById("initKeyHostLegend").textContent = "Working on it..."
-                    document.getElementById("tempKeyHostLegend").textContent = "TempKey, a symmetric AES-GCM key, successfully generated from the secret word 1 and using Argon2."
+                    document.getElementById("tempKeyHostLegend").textContent = "TempKey, an AES‑GCM key, was successfully generated locally from the secrets using Argon2."
                     document.getElementById("tempKeyHostImg").classList.add("stepCompleted")
                 }
                 if (nextStep == "defKey") {
                     document.getElementById("defKeyHostLegend").textContent = "Working on it..."
-                    document.getElementById("initKeyHostLegend").textContent = "initKey, a public assymetric RSA-OAEP key, was encrypted by tempKey and successfully sent to the server."
+                    document.getElementById("initKeyHostLegend").textContent = "initKey, your public RSA-OAEP, was encrypted by tempKey and successfully sent to the server."
                     document.getElementById("initKeyHostImg").classList.add("stepCompleted")
                 }
                 if (nextStep == "validated") {
                     document.getElementById("lockStatusHostLegend").textContent = "Working on it..."
-                    document.getElementById("defKeyHostLegend").textContent = "defKey, a symmetric AES-GCM key encrypted by initKey, was received and decrypted."
+                    document.getElementById("defKeyHostLegend").textContent = "defKey, an AES-GCM encrypted by initKey, was received and decrypted."
                     document.getElementById("defKeyHostImg").classList.add("stepCompleted")
                 }
                 if (nextStep == "chat") {
-                    document.getElementById("lockStatusHostLegend").textContent = "The secret word 2 encrypted by defKey successfully sent to the server. If the joiner validates it, the chat starts."
+                    document.getElementById("lockStatusHostLegend").textContent = "The hash of the secret2 was successfully encrypted by defKey and sent to the server. Waiting for your partner’s validation."
                     document.getElementById("lockStatusHostImg").src = "./assets/locked.webp"
                 }
             }
@@ -156,22 +180,25 @@ function app() {
                     document.getElementById("tempKeyJoinerLegend").textContent = "Working on it..."
                 }
                 if (nextStep == "initKey") {
+                    document.querySelectorAll(".stepSection").forEach(el => {
+                        el.style.display = "none";
+                    })
                     document.getElementById("initKeyJoinerLegend").textContent = "Working on it..."
-                    document.getElementById("tempKeyJoinerLegend").textContent = "TempKey, a symmetric AES-GCM key, successfully generated from the secret word 1 and using Argon2."
+                    document.getElementById("tempKeyJoinerLegend").textContent = "TempKey, an AES‑GCM key, was successfully generated locally from the secrets using Argon2."
                     document.getElementById("tempKeyJoinerImg").classList.add("stepCompleted")
                 }
                 if (nextStep == "defKey") {
                     document.getElementById("defKeyJoinerLegend").textContent = "Working on it..."
-                    document.getElementById("initKeyJoinerLegend").textContent = "initKey, the host public assymetric RSA-OAEP key encrypted by tempKey, was received and decrypted."
+                    document.getElementById("initKeyJoinerLegend").textContent = "initKey, the host public RSA-OAEP key encrypted by tempKey, was received and decrypted."
                     document.getElementById("initKeyJoinerImg").classList.add("stepCompleted")
                 }
                 if (nextStep == "validated") {
                     document.getElementById("lockStatusJoinerLegend").textContent = "Working on it..."
-                    document.getElementById("defKeyJoinerLegend").textContent = "defKey, a symmetric AES-GCM key, was encrypted by initKey and sent to the server."
+                    document.getElementById("defKeyJoinerLegend").textContent = "defKey, an AES-GCM key, was encrypted by initKey and sent to the server."
                     document.getElementById("defKeyJoinerImg").classList.add("stepCompleted")
                 }
                 if (nextStep == "chat") {
-                    document.getElementById("lockStatusJoinerLegend").textContent = "The secret word 2 encrypted by defKey received and successfully validated. The chat can begin."
+                    document.getElementById("lockStatusJoinerLegend").textContent = "The hash of the secret2 encrypted by defKey received, decrypted and successfully validated. The chat can begin."
                     document.getElementById("lockStatusJoinerImg").src = "./assets/locked.webp"
                 }
             }
@@ -1259,8 +1286,8 @@ function app() {
     // ICE servers used for NAT traversal.
     // STUN servers discover the public IP; TURN servers relay media when direct connection fails.
     // WARNING: These are public/free servers — unreliable in production.
-  
-let iceServers =null
+
+    let iceServers = null
 
 
     // Start an outgoing audio call.
@@ -1270,14 +1297,14 @@ let iceServers =null
     // 4. Create an SDP offer and set it as the local description.
     // 5. Send the offer to the peer via the chat WebSocket (signaling relay).
     // 6. Start a 60-second ringing timeout — auto-hangup if no answer.
-    
 
-          async function startCall() {
+
+    async function startCall() {
         if (isInCall) return;
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const ice = await fetchIceServers();
-peerConnection = new RTCPeerConnection(ice);
+            peerConnection = new RTCPeerConnection(ice);
             // Imposta invio candidati ICE subito
             peerConnection.onicecandidate = e => {
                 if (e.candidate) {
@@ -1352,7 +1379,7 @@ peerConnection = new RTCPeerConnection(ice);
             }, 60000);
             return;
         }
-               if (payload.type === 'answer' && peerConnection) {
+        if (payload.type === 'answer' && peerConnection) {
             if (ringingTimeout) {
                 clearTimeout(ringingTimeout);
                 ringingTimeout = null;
@@ -1401,8 +1428,8 @@ peerConnection = new RTCPeerConnection(ice);
             ringingTimeout = null;
         }
         try {
-             const ice = await fetchIceServers();
-peerConnection = new RTCPeerConnection(ice);
+            const ice = await fetchIceServers();
+            peerConnection = new RTCPeerConnection(ice);
             // Set up ontrack FIRST to avoid missing remote stream
             peerConnection.ontrack = e => {
                 console.log("REMOTE TRACK:", e.streams[0]?.getTracks());
@@ -1411,7 +1438,7 @@ peerConnection = new RTCPeerConnection(ice);
                     return;
                 }
                 if (!remoteAudioElement) {
-                    remoteAudioElement = new Audio();                 
+                    remoteAudioElement = new Audio();
                     remoteAudioElement.autoplay = true;
                     document.body.appendChild(remoteAudioElement);
                 }
@@ -1501,7 +1528,7 @@ peerConnection = new RTCPeerConnection(ice);
     function updateCallUI() {
         const btn = document.getElementById("callBtn");
         btn.textContent = isInCall ? " Hang up" : " Call";
-        btn.style.backgroundColor = isInCall ? "#c00" : "";
+        btn.style.backgroundColor = isInCall ? c25 : "";
     }
 
 
@@ -1584,16 +1611,16 @@ peerConnection = new RTCPeerConnection(ice);
         };
         chatWS.onerror = (err) => console.error('WebSocket error:', err);
     }
-async function fetchIceServers() {
-  if (iceServers) return iceServers;
-  const token = userName === "host" ? hostToken : joinerToken;
-  if (!token || !roomName) throw new Error("Not authenticated for calls");
-  const response = await fetch(`api/getTurnCredentials?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(token)}`);
-  if (!response.ok) throw new Error("Failed to fetch TURN credentials");
-  const data = await response.json();
-  iceServers = data;
-  return iceServers;
-}
+    async function fetchIceServers() {
+        if (iceServers) return iceServers;
+        const token = userName === "host" ? hostToken : joinerToken;
+        if (!token || !roomName) throw new Error("Not authenticated for calls");
+        const response = await fetch(`api/getTurnCredentials?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(token)}`);
+        if (!response.ok) throw new Error("Failed to fetch TURN credentials");
+        const data = await response.json();
+        iceServers = data;
+        return iceServers;
+    }
     document.getElementById("sendMsgBtn").addEventListener("click", () => { encryptTheMessage("msg", document.getElementById("messageInput").value) })
     document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
     document.getElementById("saveChatBtn").addEventListener("click", saveChat)
@@ -1955,17 +1982,17 @@ async function fetchIceServers() {
             a.appendChild(img);
         } else {
             a.textContent = `📎 Download ${ext.toUpperCase()}`;
-            a.style.color = "blue";
+            a.style.color = c9;
             a.style.textDecoration = "underline";
         }
 
         li.appendChild(a);
 
         if (user === "partner") {
-            li.style.color = "red";
+            li.style.color = c25;
             li.style.textShadow = "1px 1px white";
         } else {
-            li.style.color = "green";
+            li.style.color = c26;
             li.style.textShadow = "1px 1px white";
         }
 
@@ -2001,10 +2028,10 @@ async function fetchIceServers() {
         li.style.fontSize = "larger";
 
         if (user === "partner") {
-            li.style.color = "red";
+            li.style.color = c25;
             li.style.textShadow = "1px 1px white";
         } else {
-            li.style.color = "green";
+            li.style.color = c26;
             li.style.textShadow = "1px 1px white";
         }
 

@@ -13,11 +13,11 @@
 <body>
     <header>
         <h1>Chat SDX</h1>
-        <section class="dynamic landingPage">
+        <section class="dynamic landingPage centerBtnsSec">
             <button type="button" id="hostBtnStart">Host a chat</button>
             <button type="button" id="joinBtnStart">Join a chat</button>
         </section>
-        <section class="dynamic chatPage">
+        <section class="dynamic chatPage centerBtnsSec">
             <button type="button" id="saveChatBtn">Save chat</button>
             <button type="button" id="destroyChatBtn">Destroy chat</button>
         </section>
@@ -27,12 +27,12 @@
                 <input type="text" id="roomNameInput" readonly name="roomName">
             </span>
             <span>
-                <label for="roomSecretCodeInput1">Room SecretCode 1:</label>
+                <label for="roomSecretCodeInput1">Room Secret 1:</label>
                 <input type="text" placeholder="At least 6 alphanumeric characters" id="roomSecretCodeInput1"
                     name="roomSecretCode1">
             </span>
             <span>
-                <label for="roomSecretCodeInput2">Room SecretCode 2:</label>
+                <label for="roomSecretCodeInput2">Room Secret 2:</label>
                 <input type="text" placeholder="At least 12 random chars (A/a + 0-9 + symbols)"
                     id="roomSecretCodeInput2" name="roomSecretCode2">
             </span>
@@ -67,13 +67,12 @@
                 <ul id="savedRooms">
                 </ul>
             </section>
-            <section class="dynamic hostPage">
+            <section class="dynamic hostPage stepSection">
                 <h2>Host a chat: next steps:</h2>
                 <ol>
-                    <li>Choose the secret words</li>
+                    <li>Choose the secrets</li>
                     <li>Click "host this chat"</li>
-                    <li>Share the roomName and secret words with the other user via a <b>temporary secure channel</b>
-                    </li>
+                    <li>Share the roomName and the secrets with your partner via a temporary secure channel</li>
                     <li>Wait for the other user to join</li>
                 </ol>
                 <p>If the page reloads, the room is lost.</p>
@@ -118,10 +117,10 @@
             </article>
         </section>
 
-        <section class="dynamic joinPage">
+        <section class="dynamic joinPage stepSection">
             <h2>Join a chat: next steps:</h2>
             <ol>
-                <li>Use a <b>temporary secure channel</b> to obtain the room code and secret words</li>
+                <li>Use a temporary secure channel to obtain the room code and secret words</li>
                 <li>Enter the information and click “Join this chat”</li>
             </ol>
             <p>If the page reloads, the room is lost.</p>

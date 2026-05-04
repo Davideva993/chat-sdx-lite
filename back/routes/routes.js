@@ -2,6 +2,8 @@
 import express from "express";
 import keyExchangeCtrl from "../controllers/keyExchange.js";
 import chatCtrl from "../controllers/chat.js";
+import turnCtrl from "../controllers/turn.js";
+
 
 const router = express.Router();
 
