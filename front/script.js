@@ -1370,6 +1370,10 @@ function app() {
         if (payload.type === 'offer') {
             incomingOffer = payload;
             document.getElementById("incomingCallBox").style.display = "block";
+            document.getElementById("incomingCallBox").style.position = "absolute";
+            document.getElementById("incomingCallBox").style.justifySelf = "center";
+            document.getElementById("incomingCallBox").style.top = "50px";
+
             // Auto-decline after 60 seconds of ringing
             ringingTimeout = setTimeout(() => {
                 if (incomingOffer) {

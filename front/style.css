@@ -210,13 +210,14 @@ b {
     text-decoration: underline;
     font-size: larger;
 }
-
+#ulChat{
+    height: 52vh;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
 
 #sendSection {
     display: flex;
-    position: sticky;
-    top: 85vh;
-    justify-content: center;
     justify-content: space-between;
     width: 100%;
 }
