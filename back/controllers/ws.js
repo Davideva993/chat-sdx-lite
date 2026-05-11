@@ -23,7 +23,7 @@ const webSocketController = {
         webSocketController.handleConnection(ws, roomName, token);
       });
     });
-    console.log('✅ WebSocket server initialized (pure ws, 1:1 chat)');
+    //console.log('✅ WebSocket server initialized (pure ws, 1:1 chat)');
   },
 
   /**
@@ -55,7 +55,7 @@ const webSocketController = {
       }
       const roomSockets = activeRooms.get(roomName);
       roomSockets[`${role}WS`] = ws;
-      console.log(`🔌 ${role.toUpperCase()} connected to room ${roomName}`);
+      //console.log(`🔌 ${role.toUpperCase()} connected to room ${roomName}`);
       // WebSocket events
       ws.on('close', () => {
         if (roomSockets[`${role}WS`] === ws) {
@@ -70,16 +70,13 @@ const webSocketController = {
       ws.on('message', (data) => {
         try {
           const msg = JSON.parse(data);
-          if (msg.message && (msg.sender === 'host' || msg.sender === 'joiner')) {
-            webSocketController.broadcastMessage(roomName, msg, role);
-          }
-          else if (msg.type === 'webrtc-signaling') {
+          if (msg.type === 'webrtc-signaling') {
             webSocketController.broadcastSignaling(roomName, msg.payload, role);
           }
         } catch (e) {
           console.error('Invalid WebSocket message:', e);
         }
-      }); 
+      });
     } catch (e) {
       console.error('WebSocket connection error:', e);
       ws.close(4003, 'Server error');
@@ -102,15 +99,12 @@ const webSocketController = {
 
     if (receiverWS && receiverWS.readyState === WebSocket.OPEN) {
       receiverWS.send(JSON.stringify(messageObj));
-      console.log(`📤 Encrypted message forwarded to ${receiverRole} in room ${roomName}`);
+      //console.log(`📤 Encrypted message forwarded to ${receiverRole} in room ${roomName}`);
+      return true;
     }
+    return false;
   },
-    /**
-   * Forwards WebRTC signaling payloads (offer, answer, ICE candidate, hangup, decline)
-   * between the two participants in a room.
-   * The server acts as a blind relay — it does NOT inspect or modify the SDP/ICE data.
-   * Media flows peer-to-peer (or via TURN), never through this server.
-   */
+
   broadcastSignaling(roomName, payload, senderRole) {
     const roomSockets = activeRooms.get(roomName);
     if (!roomSockets) return;
@@ -118,12 +112,12 @@ const webSocketController = {
     const receiverRole = senderRole === 'host' ? 'joiner' : 'host';
     const receiverWS = roomSockets[`${receiverRole}WS`];
 
-    if (receiverWS && receiverWS.readyState === WebSocket.OPEN) {
+    if (receiverWS && receiverWS.readyState === WebSocket.OPEN) { //send the signaling to the other peer's WebSocket
       receiverWS.send(JSON.stringify({
         type: 'webrtc-signaling',
         payload
       }));
-      console.log(`📡 WebRTC signaling forwarded to ${receiverRole} in room ${roomName}`);
+      //console.log(`📡 WebRTC signaling forwarded to ${receiverRole} in room ${roomName}`);
     }
   }
 };

@@ -82,24 +82,23 @@ joinerSendsMessage: async (req, res) => {
         order 
     });
 
-     try {
-       webSocketController.broadcastMessage(
-        roomName, 
-        { message, order, sender: 'joiner' }, 
-        'joiner'   //send to the host
-      );
+     const sent = webSocketController.broadcastMessage(
+       roomName,
+       { message, order, sender: 'joiner' },
+       'joiner'
+     );
 
-      await Message.destroy({
-        where: { roomName, order, sender: "joiner" }
-      });
-    } catch (err) {
-      console.error("WebSocket error (joiner):", err);
-      return res.status(500).json({ 
-        error: "Message saved but failed to deliver to host via WS" 
-      });
-    }
+     if (!sent) {
+       return res.status(500).json({
+         error: "Message saved but failed to deliver to host via WS"
+       });
+     }
 
-    res.json({ success: true });
+     await Message.destroy({
+       where: { roomName, order, sender: "joiner" }
+     });
+
+     res.json({ success: true });
   },
 
 

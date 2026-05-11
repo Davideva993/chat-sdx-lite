@@ -1,9 +1,0 @@
-listening-ip=0.0.0.0
-listening-port=port turn
-external-ip=ip server
-relay-ip=ip server
-realm=domain
-log-file=/var/log/turnserver/turn.log
-use-auth-secret
-static-auth-secret=1234Secret92749201938472829103
-#/etc/turnserver.conf

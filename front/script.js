@@ -18,14 +18,13 @@
 */
 function app() {
     'use strict'
-    console.log("Argon2:", typeof argon2 !== "undefined" ? "ok" : "error");
+    //console.log("Argon2:", typeof argon2 !== "undefined" ? "ok" : "error");
     const dynamicElements = document.getElementsByClassName("dynamic")
     const c18 = "#1b2330"
     const c9 = "#cfe7ff"
     const c25 = "#FF0000"
     const c26 = "#369900"
     const c8 = "#4db8ff";
-
     let userName
     let tempKey
     let keyPair
@@ -43,6 +42,7 @@ function app() {
     let initKeyCrypto
     let cumulativeNonce = null
     let sendOk = false
+    let chatMessages = [];
 
     updateDynamicElements("landingPage")
     hostBtnStart.addEventListener("click", () => updateDynamicElements("hostPage"))
@@ -53,12 +53,114 @@ function app() {
     reloadButton.addEventListener("click", () => { location.reload() })
 
 
+
+    // Save-load chat part: 
+    //  Save: user enters a password generates an AES (argon2) to encrypt the message and sensitive conversation data and store in localStorage. RoomName is encrypted ans stored too. AES and password aren't stored.
+    //  Load: user enters the password and to generate the AES exactly as in the "save part". Then try to encrypt the roomName and compare with the encrypted roomName. If matches, password (and AES) are right so chipertext will be decrypted.   
+    async function saveChat() {
+        const pwd = prompt("Enter a password... and don't forget it");
+        if (!pwd || pwd.length < 4) {
+            alert("Password too short. Minimum 4 characters.");
+            return false;
+        }
+        try {
+            const salt = crypto.getRandomValues(new Uint8Array(32));
+            const passwordBuffer = new TextEncoder().encode(pwd);
+            const argon2Params = {
+                pass: passwordBuffer,
+                salt: salt,
+                time: 3,
+                mem: 32768,
+                hashLen: 32,
+                parallelism: 1,
+                type: argon2.Argon2id,
+            };
+            const hash = await argon2.hash(argon2Params);
+            let keyBytes;
+            if (hash.hash instanceof Uint8Array) {
+                keyBytes = hash.hash;
+            } else if (hash.hash instanceof ArrayBuffer) {
+                keyBytes = new Uint8Array(hash.hash);
+            } else if (typeof hash.hash === 'string') {
+                keyBytes = hexToUint8Array(hash.hash);
+            } else {
+                throw new Error("Unsupported Argon2 hash format");
+            }
+            if (keyBytes.length !== 16 && keyBytes.length !== 32) {
+                console.error("Derived key length invalid:", keyBytes.length);
+                return false;
+            }
+            const masterKey = await crypto.subtle.importKey(
+                'raw',
+                keyBytes.buffer,
+                { name: 'AES-GCM' },
+                true,
+                ['encrypt', 'decrypt']
+            );
+            const exported = await crypto.subtle.exportKey('raw', currentDefKey);
+            const currentDefKeyRaw = Array.from(new Uint8Array(exported));
+            let sessionData
+            if (userName === "host") {
+                sessionData = {
+                    secretCode2: secretCode2,
+                    cumulativeNonce: Array.from(cumulativeNonce),
+                    currentDefKeyRaw: currentDefKeyRaw,
+                    hostToken: hostToken,
+                    roomName: roomName,
+                    messages: chatMessages,
+                };
+            } else if (userName === "joiner") {
+                sessionData = {
+                    secretCode2: secretCode2,
+                    cumulativeNonce: Array.from(cumulativeNonce),
+                    currentDefKeyRaw: currentDefKeyRaw,
+                    joinerToken: joinerToken,
+                    roomName: roomName,
+                    messages: chatMessages,
+                };
+            }
+            const dataString = JSON.stringify(sessionData);
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encryptedBuffer = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv },
+                masterKey,
+                new TextEncoder().encode(dataString)
+            );
+            const encryptedRoomName = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv },
+                masterKey,
+                new TextEncoder().encode(roomName)
+            );
+
+            const conversationEntry = {
+                [roomName]: {
+                    encryptedRoomName: Array.from(new Uint8Array(encryptedRoomName)), // when restore, user will try to recreate the same key and use it to encrypt the roomName and see if matches with this one => if matches, password is right => can decrypt the chat
+                    version: 1,
+                    salt: Array.from(salt),
+                    iv: Array.from(iv),
+                    ciphertext: Array.from(new Uint8Array(encryptedBuffer))
+                }
+            };
+            let myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
+            myConversations[roomName] = conversationEntry[roomName];
+            localStorage.setItem("myConversations", JSON.stringify(myConversations));
+            displaySavedRooms()
+            alert(`✅ Conversation "${roomName}" saved successfully!`);
+            //console.log(`Saved conversation: ${roomName}`);
+            return true;
+        } catch (error) {
+            console.error("Save error:", error);
+            alert("Failed to save the conversation. Check console.");
+            return false;
+        }
+    }
+
+
     function displaySavedRooms() {
         const ul = document.getElementById("savedRooms")
         ul.innerHTML = ""
         const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}")
         if (Object.keys(myConversations).length == 0) {
-            console.log("ok")
             ul.innerHTML = "<li>No saved conversations</li>"
         }
         else {
@@ -83,7 +185,6 @@ function app() {
                 ul.appendChild(li)
             })
         }
-
     }
 
     async function restoreSavedRoom(room) {
@@ -94,6 +195,146 @@ function app() {
             return
         }
         await loadChat(room)
+    }
+
+    async function loadChat(requestedRoomName) {
+        if (!requestedRoomName || requestedRoomName.trim() === "") {
+            alert("Room name is required.");
+            return false;
+        }
+        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
+        const savedChat = myConversations[requestedRoomName];
+        if (!savedChat) {
+            //console.log(savedChat)
+            alert(`No saved conversation found for room: ${requestedRoomName}`);
+            return false;
+        }
+        const pwd = prompt(`Enter the password to recover conversation "${requestedRoomName}"`);
+        if (!pwd) {
+            return false;
+        }
+        try {
+            const salt = new Uint8Array(savedChat.salt);
+            const iv = new Uint8Array(savedChat.iv);
+            const ciphertext = new Uint8Array(savedChat.ciphertext);
+            const passwordBuffer = new TextEncoder().encode(pwd);
+            const argon2Params = {
+                pass: passwordBuffer,
+                salt: salt,
+                time: 3,
+                mem: 32768,
+                hashLen: 32,
+                parallelism: 1,
+                type: argon2.Argon2id,
+            };
+            const hash = await argon2.hash(argon2Params);
+            let keyBytes;
+            if (hash.hash instanceof Uint8Array) {
+                keyBytes = hash.hash;
+            } else if (hash.hash instanceof ArrayBuffer) {
+                keyBytes = new Uint8Array(hash.hash);
+            } else if (typeof hash.hash === 'string') {
+                keyBytes = hexToUint8Array(hash.hash);
+            } else {
+                throw new Error("Unsupported Argon2 hash format");
+            }
+            if (keyBytes.length !== 16 && keyBytes.length !== 32) {
+                console.error("Derived key length invalid:", keyBytes.length);
+                alert("Errore interno: chiave derivata non valida.");
+                return false;
+            }
+            //console.log("derived master key length:", keyBytes.length);
+            const masterKey = await crypto.subtle.importKey(
+                'raw',
+                keyBytes.buffer,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            const roomNameBuffer = new TextEncoder().encode(requestedRoomName);
+            const encryptedRoomNameTest = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv },
+                masterKey,
+                roomNameBuffer
+            );
+            const testArray = new Uint8Array(encryptedRoomNameTest);
+            const savedArray = new Uint8Array(savedChat.encryptedRoomName);
+            //console.log("Test encrypted length:", testArray.length);
+            //console.log("Saved encrypted length:", savedArray.length);
+            if (testArray.length !== savedArray.length ||
+                !testArray.every((byte, i) => byte === savedArray[i])) {
+                //console.log("❌ Password mismatch - lengths or bytes differ");
+                alert("Wrong password");
+                return false;
+            }
+            //console.log("✅ Password verified successfully");
+            const decryptedBuffer = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv },
+                masterKey,
+                ciphertext
+            );
+            const sessionData = JSON.parse(new TextDecoder().decode(decryptedBuffer));
+            roomName = sessionData.roomName
+            //console.log(sessionData)
+            //console.log(roomName)
+            if (sessionData.hostToken) {
+                hostToken = sessionData.hostToken
+                userName = "host"
+            }
+            else if (sessionData.joinerToken) {
+                joinerToken = sessionData.joinerToken
+                //console.log(joinerToken, roomName)
+                userName = "joiner"
+            }
+            secretCode2 = sessionData.secretCode2;
+            cumulativeNonce = new Uint8Array(sessionData.cumulativeNonce);
+            const curKeyBytes2 = new Uint8Array(sessionData.currentDefKeyRaw);
+            //console.log("restored currentDefKey length:", curKeyBytes2.length);
+            if (curKeyBytes2.length !== 16 && curKeyBytes2.length !== 32) {
+                throw new Error("Invalid currentDefKey length: " + curKeyBytes2.length);
+            }
+            currentDefKey = await crypto.subtle.importKey(
+                'raw',
+                curKeyBytes2,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            const ul = document.getElementById("ulChat");
+            ul.innerHTML = "";
+            chatMessages = []
+            sessionData.messages.forEach(msg => {
+                //console.log(sessionData)
+                if (msg.type === "file") {
+                    const bytes = new Uint8Array(msg.bytes);
+                    addFileMessage(bytes, msg.ext, msg.user);
+                } else {
+                    addTextMessage(msg.text, msg.user);
+                }
+            });
+            alert(`✅ Conversation "${requestedRoomName}" loaded and decrypted successfully !`);
+            //console.log(`Loaded encrypted conversation: ${requestedRoomName}`);
+            updateDynamicElements("chatPage");
+            if (chatWS) {
+                try { chatWS.close(); } catch (e) { }
+            }
+            //console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
+            connectChatWebSocket();
+            document.getElementById("roomNameH2").textContent = roomName;
+            return true;
+        } catch (error) {
+            console.error("Load error:", error);
+            return false;
+        }
+    }
+
+    function hexToUint8Array(hex) {
+        if (hex.length % 2 !== 0) throw new Error("Invalid hex string");
+        const arr = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            arr[i / 2] = parseInt(hex.substr(i, 2), 16);
+        }
+        return arr;
     }
 
 
@@ -110,7 +351,6 @@ function app() {
         if (classToShow === "landingPage") {
             displaySavedRooms()
         }
-
         const label = document.querySelector('label[for="roomNameInput"]')
         if (classToShow == "chatPage") {
             document.getElementById("centralSection").style.height = "60vh"
@@ -153,7 +393,7 @@ function app() {
                     document.getElementById("tempKeyHostLegend").textContent = "Working on it..."
                 }
                 if (nextStep == "initKey") {
-                    document.querySelectorAll(".stepSection").forEach(el => {
+                    document.querySelectorAll(".showcaseSection").forEach(el => {
                         el.style.display = "none";
                     })
                     document.getElementById("initKeyHostLegend").textContent = "Working on it..."
@@ -180,7 +420,7 @@ function app() {
                     document.getElementById("tempKeyJoinerLegend").textContent = "Working on it..."
                 }
                 if (nextStep == "initKey") {
-                    document.querySelectorAll(".stepSection").forEach(el => {
+                    document.querySelectorAll(".showcaseSection").forEach(el => {
                         el.style.display = "none";
                     })
                     document.getElementById("initKeyJoinerLegend").textContent = "Working on it..."
@@ -246,12 +486,12 @@ function app() {
                     document.getElementById("lockStatusJoinerImg").classList.add("stepFailed")
                 }
             }
-
         }
     }
 
 
     //--------------------------------Functional functions (keyExchange)
+
     function restartFront() {
         alert("The chat cannot start. The room name is wrong, the room was removed for security reasons, or a chat is already active. Please try again and inform your partner.");
         location.reload()
@@ -315,7 +555,6 @@ function app() {
                 countdownInterval = null;
                 destroyLegend.textContent = "Self-destruct deactivated: time check passed."
                 countdownP.textContent = ""
-
             }
         }
     }
@@ -331,300 +570,6 @@ function app() {
         hostRegistersRoom()
 
     }
-    function hexToUint8Array(hex) {
-        if (hex.length % 2 !== 0) throw new Error("Invalid hex string");
-        const arr = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < hex.length; i += 2) {
-            arr[i / 2] = parseInt(hex.substr(i, 2), 16);
-        }
-        return arr;
-    }
-
-
-    async function loadChat(requestedRoomName) {
-        if (!requestedRoomName || requestedRoomName.trim() === "") {
-            alert("Room name is required.");
-            return false;
-        }
-        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
-        const savedChat = myConversations[requestedRoomName];
-        if (!savedChat) {
-            console.log(savedChat)
-            alert(`No saved conversation found for room: ${requestedRoomName}`);
-            return false;
-        }
-        if (!savedChat.ciphertext) {
-            // if direct restore without password 
-            const sessionData = savedChat;
-            secretCode2 = sessionData.secretCode2;
-            cumulativeNonce = new Uint8Array(sessionData.cumulativeNonce);
-            const curKeyBytes = new Uint8Array(sessionData.currentDefKeyRaw);
-            console.log("restore direct currentDefKey length:", curKeyBytes.length);
-            currentDefKey = await crypto.subtle.importKey(
-                'raw',
-                curKeyBytes.buffer,
-                { name: 'AES-GCM' },
-                false,
-                ['encrypt', 'decrypt']
-            );
-            const ul = document.getElementById("ulChat");
-            ul.innerHTML = "";
-            chatMessages = []
-            sessionData.messages.forEach(msg => {
-                if (msg.type === "file") {
-                    const bytes = new Uint8Array(msg.bytes);
-                    addFileMessage(bytes, msg.ext, msg.user);
-                } else {
-                    addTextMessage(msg.text, msg.user);
-                }
-            });
-            alert(`✅ Conversation "${requestedRoomName}" loaded successfully (no password)!`);
-            console.log(`Loaded unencrypted conversation: ${requestedRoomName}`);
-            updateDynamicElements("chatPage");
-            if (chatWS) {
-                try { chatWS.close(); } catch (e) { }
-            }
-            console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
-
-            connectChatWebSocket();
-            document.getElementById("roomNameH2").textContent = requestedRoomName;
-            return true;
-        }
-        const pwd = prompt(`Enter the password to recover conversation "${requestedRoomName}"`);
-        if (!pwd) {
-            return false;
-        }
-        try {
-            const salt = new Uint8Array(savedChat.salt);
-            const iv = new Uint8Array(savedChat.iv);
-            const ciphertext = new Uint8Array(savedChat.ciphertext);
-            const passwordBuffer = new TextEncoder().encode(pwd);
-            const argon2Params = {
-                pass: passwordBuffer,
-                salt: salt,
-                time: 3,
-                mem: 32768,
-                hashLen: 32,
-                parallelism: 1,
-                type: argon2.Argon2id,
-            };
-            const hash = await argon2.hash(argon2Params);
-            let keyBytes;
-            if (hash.hash instanceof Uint8Array) {
-                keyBytes = hash.hash;
-            } else if (hash.hash instanceof ArrayBuffer) {
-                keyBytes = new Uint8Array(hash.hash);
-            } else if (typeof hash.hash === 'string') {
-                keyBytes = hexToUint8Array(hash.hash);
-            } else {
-                throw new Error("Unsupported Argon2 hash format");
-            }
-
-            if (keyBytes.length !== 16 && keyBytes.length !== 32) {
-                console.error("Derived key length invalid:", keyBytes.length);
-                alert("Errore interno: chiave derivata non valida.");
-                return false;
-            }
-            console.log("derived master key length:", keyBytes.length);
-            const masterKey = await crypto.subtle.importKey(
-                'raw',
-                keyBytes.buffer,
-                { name: 'AES-GCM' },
-                false,
-                ['encrypt', 'decrypt']
-            );
-            const roomNameBuffer = new TextEncoder().encode(requestedRoomName);
-            const encryptedRoomNameTest = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv: iv },
-                masterKey,
-                roomNameBuffer
-            );
-            const testArray = new Uint8Array(encryptedRoomNameTest);
-            const savedArray = new Uint8Array(savedChat.encryptedRoomName);
-            console.log("Test encrypted length:", testArray.length);
-            console.log("Saved encrypted length:", savedArray.length);
-
-            if (testArray.length !== savedArray.length ||
-                !testArray.every((byte, i) => byte === savedArray[i])) {
-                console.log("❌ Password mismatch - lengths or bytes differ");
-
-                alert("Wrong password");
-                return false;
-            }
-            console.log("✅ Password verified successfully");
-            const decryptedBuffer = await crypto.subtle.decrypt(
-                { name: 'AES-GCM', iv },
-                masterKey,
-                ciphertext
-            );
-            const sessionData = JSON.parse(new TextDecoder().decode(decryptedBuffer));
-            roomName = sessionData.roomName
-            console.log(sessionData)
-
-            console.log(roomName)
-            if (sessionData.hostToken) {
-                hostToken = sessionData.hostToken
-                userName = "host"
-
-            }
-            else if (sessionData.joinerToken) {
-                joinerToken = sessionData.joinerToken
-                console.log(joinerToken, roomName)
-                userName = "joiner"
-            }
-
-            secretCode2 = sessionData.secretCode2;
-            cumulativeNonce = new Uint8Array(sessionData.cumulativeNonce);
-            const curKeyBytes2 = new Uint8Array(sessionData.currentDefKeyRaw);
-            console.log("restored currentDefKey length:", curKeyBytes2.length);
-            if (curKeyBytes2.length !== 16 && curKeyBytes2.length !== 32) {
-                throw new Error("Invalid currentDefKey length: " + curKeyBytes2.length);
-            }
-            currentDefKey = await crypto.subtle.importKey(
-                'raw',
-                curKeyBytes2,
-                { name: 'AES-GCM' },
-                false,
-                ['encrypt', 'decrypt']
-            );
-            const ul = document.getElementById("ulChat");
-            ul.innerHTML = "";
-            chatMessages = []
-
-            sessionData.messages.forEach(msg => {
-                console.log(sessionData)
-                if (msg.type === "file") {
-                    const bytes = new Uint8Array(msg.bytes);
-                    addFileMessage(bytes, msg.ext, msg.user);
-                } else {
-                    addTextMessage(msg.text, msg.user);
-                }
-            });
-            alert(`✅ Conversation "${requestedRoomName}" loaded and decrypted successfully !`);
-            console.log(`Loaded encrypted conversation: ${requestedRoomName}`);
-            updateDynamicElements("chatPage");
-            if (chatWS) {
-                try { chatWS.close(); } catch (e) { }
-            }
-            console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
-
-            connectChatWebSocket();
-
-            document.getElementById("roomNameH2").textContent = roomName;
-            return true;
-        } catch (error) {
-            console.error("Load error:", error);
-            return false;
-        }
-    }
-
-
-
-    let chatMessages = [];
-
-    async function saveChat() {
-        const pwd = prompt("Enter a password... and don't forget it");
-        if (!pwd || pwd.length < 4) {
-            alert("Password too short. Minimum 4 characters.");
-            return false;
-        }
-        try {
-            const salt = crypto.getRandomValues(new Uint8Array(32));
-            const passwordBuffer = new TextEncoder().encode(pwd);
-            const argon2Params = {
-                pass: passwordBuffer,
-                salt: salt,
-                time: 3,
-                mem: 32768,
-                hashLen: 32,
-                parallelism: 1,
-                type: argon2.Argon2id,
-            };
-            const hash = await argon2.hash(argon2Params);
-            let keyBytes;
-            if (hash.hash instanceof Uint8Array) {
-                keyBytes = hash.hash;
-            } else if (hash.hash instanceof ArrayBuffer) {
-                keyBytes = new Uint8Array(hash.hash);
-            } else if (typeof hash.hash === 'string') {
-                keyBytes = hexToUint8Array(hash.hash);
-            } else {
-                throw new Error("Unsupported Argon2 hash format");
-            }
-
-            if (keyBytes.length !== 16 && keyBytes.length !== 32) {
-                console.error("Derived key length invalid:", keyBytes.length);
-                return false;
-            }
-            const masterKey = await crypto.subtle.importKey(
-                'raw',
-                keyBytes.buffer,
-                { name: 'AES-GCM' },
-                true,
-                ['encrypt', 'decrypt']
-            );
-            const exported = await crypto.subtle.exportKey('raw', currentDefKey);
-            const currentDefKeyRaw = Array.from(new Uint8Array(exported));
-            let sessionData
-            if (userName === "host") {
-                sessionData = {
-                    secretCode2: secretCode2,
-                    cumulativeNonce: Array.from(cumulativeNonce),
-                    currentDefKeyRaw: currentDefKeyRaw,
-                    hostToken: hostToken,
-                    roomName: roomName,
-                    messages: chatMessages,
-                };
-            } else if (userName === "joiner") {
-                sessionData = {
-                    secretCode2: secretCode2,
-                    cumulativeNonce: Array.from(cumulativeNonce),
-                    currentDefKeyRaw: currentDefKeyRaw,
-                    joinerToken: joinerToken,
-                    roomName: roomName,
-                    messages: chatMessages,
-                };
-            }
-
-
-
-            const dataString = JSON.stringify(sessionData);
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            const encryptedBuffer = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv: iv },
-                masterKey,
-                new TextEncoder().encode(dataString)
-            );
-            const encryptedRoomName = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv: iv },
-                masterKey,
-                new TextEncoder().encode(roomName)
-            );
-
-            const conversationEntry = {
-                [roomName]: {
-                    encryptedRoomName: Array.from(new Uint8Array(encryptedRoomName)),
-                    version: 1,
-                    salt: Array.from(salt),
-                    iv: Array.from(iv),
-                    ciphertext: Array.from(new Uint8Array(encryptedBuffer))
-                }
-            };
-            let myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
-            myConversations[roomName] = conversationEntry[roomName];
-            localStorage.setItem("myConversations", JSON.stringify(myConversations));
-            displaySavedRooms()
-            alert(`✅ Conversation "${roomName}" saved successfully!`);
-            console.log(`Saved conversation: ${roomName}`);
-            return true;
-        } catch (error) {
-            console.error("Save error:", error);
-            alert("Failed to save the conversation. Check console.");
-            return false;
-        }
-    }
-
-
 
     async function hostGeneratesTempKey() {
         try {
@@ -1062,7 +1007,7 @@ function app() {
                 }
 
                 if (response.status === 404) {
-                    console.log(data.error); // "defKey not ready"
+                    //console.log(data.error); // "defKey not ready"
                     setTimeout(() => {
                         hostAsksForEncryptedDefKey()
                     }, 1500)
@@ -1252,7 +1197,6 @@ function app() {
             alert("host is certified!")
             defKey = null
             updateDynamicElements("chatPage")
-
             connectChatWebSocket();
         } else {
             alert("host is not certified")
@@ -1265,60 +1209,98 @@ function app() {
     }
 
     //--------------------------------Functional functions (chat part)
-
+    // WebRTC VoIP — Audio-only peer-to-peer calls, Audio is encrypted in transit by DTLS-SRTP (built into WebRTC). Signaling (offer/answer/ICE) is sent over the existing chat WebSocket. The server only relays signaling — it never sees media or keys.
     let currentDefKey = null
     let chatWS = null;
     let lastSentFileInfo = null;
-    // ============================================
-    // WebRTC VoIP — Audio-only peer-to-peer calls
-    // Audio is encrypted in transit by DTLS-SRTP (built into WebRTC).
-    // Signaling (offer/answer/ICE) is sent over the existing chat WebSocket.
-    // The server only relays signaling — it never sees media or keys.
-    // ============================================
     let localStream = null;              // Local microphone MediaStream
     let peerConnection = null;           // RTCPeerConnection for the current call
     let isInCall = false;                // Whether the user is currently in a call
     let incomingOffer = null;            // Stores an incoming SDP offer until the user accepts
-    let pendingCandidates = [];          // ICE candidates buffered before peerConnection is ready
+    let pendingCandidates = [];          // ICE candidates buffered until remote description is set
     let ringingTimeout = null;           // Timeout that auto-declines unanswered calls after 60s
     let remoteAudioElement = null;       // <audio> element that plays the remote party's audio
-
-    // ICE servers used for NAT traversal.
-    // STUN servers discover the public IP; TURN servers relay media when direct connection fails.
-    // WARNING: These are public/free servers — unreliable in production.
-
-    let iceServers = null
+    let iceServers = null  // ICE servers used for NAT traversal. Stun or turn
 
 
-    // Start an outgoing audio call.
-    // 1. Get microphone access from the user.
-    // 2. Create an RTCPeerConnection with the configured ICE servers.
-    // 3. Add the local audio track to the connection.
-    // 4. Create an SDP offer and set it as the local description.
-    // 5. Send the offer to the peer via the chat WebSocket (signaling relay).
-    // 6. Start a 60-second ringing timeout — auto-hangup if no answer.
+    function connectChatWebSocket() {
+        //console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
+        if (chatWS) {
+            try { chatWS.close(); } catch (e) { }
+        } let token
+        if (userName == "host") {
+            token = hostToken
+        } else if (userName == "joiner") {
+            token = joinerToken
+        }
+        const wsUrl = `wss://${location.host}/ws?roomName=${roomName}&token=${token}`;
+        chatWS = new WebSocket(wsUrl); //upgrade to websocket
+        chatWS.onopen = () => {
+            //console.log('✅ Chat WebSocket connected (real-time, no polling)');
+        };
+        chatWS.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'webrtc-signaling') {
+                await handleSignalingMessage(data.payload);
+            } else {
+                await decryptTheMessage(data.message || data);
+            }
+        };
+        chatWS.onclose = () => {
+            console.warn('WebSocket closed. Reconnecting in 2s...');
+            setTimeout(connectChatWebSocket, 2000);
+        };
+        chatWS.onerror = (err) => console.error('WebSocket error:', err);
+    }
+
+    //---------------------------VoIP  
+
+        /*
+(startCall)
+    Caller opens mic, creates PC, sends offer (SDP), then sends candidates as they gather. 
+
+(handleSignalingMessage)
+    Callee buffers caller's candidates and saves incomingOffer.
+
+(acceptIncomingCall)
+    Callee answers: creates PC, sets caller's offer as remoteDescription, then adds buffered candidates, gets mic & adds tracks, 
+    creates answer (which negotiates codec), sets it as localDescription, sends answer, then sends own candidates as they gather.
+
+(handleSignalingMessage)
+    Caller sets callee's answer as remoteDescription, then adds buffered callee candidates.
+    */
 
 
-    async function startCall() {
+    async function fetchIceServers() { //ask for STUN/TURN urls
+        if (iceServers) return iceServers;
+        const token = userName === "host" ? hostToken : joinerToken;
+        if (!token || !roomName) throw new Error("Not authenticated for calls");
+        const response = await fetch(`api/getTurnCredentials?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(token)}`);
+        if (!response.ok) throw new Error("Failed to fetch TURN credentials");
+        const data = await response.json();
+        iceServers = data;
+        return iceServers;
+    }
+
+
+    async function startCall() { //gets local mic, create RTCPeerConnection, and send candidates and offer (sdp)
         if (isInCall) return;
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const ice = await fetchIceServers();
+            const ice = await fetchIceServers(); //STUN and TURN URLs
             peerConnection = new RTCPeerConnection(ice);
-            // Imposta invio candidati ICE subito
-            peerConnection.onicecandidate = e => {
+            peerConnection.onicecandidate = e => { // ice is used to get my(caller) addresses: host, srflx (STUN), relay (TURN)
                 if (e.candidate) {
-                    console.log("CANDIDATE:", e.candidate.candidate);
-                    sendSignaling({ type: 'candidate', candidate: e.candidate });
+                    //console.log("CANDIDATE:", e.candidate.candidate);
+                    sendSignaling({ type: 'candidate', candidate: e.candidate }); //signaling my(caller) addresses (where to reach me)
                 }
             };
             peerConnection.oniceconnectionstatechange = () => {
-                console.log('ICE connection state:', peerConnection.iceConnectionState);
+                //console.log('ICE connection state:', peerConnection.iceConnectionState);
             };
             peerConnection.onicegatheringstatechange = () => {
-                console.log('ICE gathering state:', peerConnection.iceGatheringState);
+                //console.log('ICE gathering state:', peerConnection.iceGatheringState);
             };
-            // Quando arriva lo stream remoto
             peerConnection.ontrack = e => {
                 let audioEl = document.getElementById("remoteAudio");
                 if (!audioEl) {
@@ -1330,17 +1312,15 @@ function app() {
                 audioEl.srcObject = e.streams[0];
                 audioEl.play().catch(err => console.error("Caller audio failed:", err));
             };
-            // Aggiungi tracce locali
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-            // Crea offerta
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
-            sendSignaling({ type: 'offer', sdp: offer });
+            sendSignaling({ type: 'offer', sdp: offer }); //signaling how to communicate with me (codecs, media format, encryption format..)
             isInCall = true;
             updateCallUI();
             ringingTimeout = setTimeout(() => {
                 if (isInCall && peerConnection) {
-                    console.log('Call timeout - no answer');
+                    //console.log('Call timeout - no answer');
                     hangUp(true);
                 }
             }, 60000);
@@ -1349,9 +1329,8 @@ function app() {
             alert("Microphone access is required to make calls.");
         }
     }
-    // Send a WebRTC signaling payload (offer, answer, ICE candidate, hangup, decline)
-    // to the peer through the existing chat WebSocket connection.
-    // The server relays it without inspecting the content.
+
+
     function sendSignaling(payload) {
         if (chatWS?.readyState === WebSocket.OPEN) {
             chatWS.send(JSON.stringify({
@@ -1361,38 +1340,32 @@ function app() {
         }
     }
 
-    // Handle incoming WebRTC signaling messages relayed by the server.
-    // - 'offer': store it and show the incoming-call popup
-    // - 'answer': set as remote description on the caller's peer connection
-    // - 'candidate': buffer if peerConnection isn't ready yet, otherwise add immediately
-    // - 'hangup' / 'decline': tear down the call
-    async function handleSignalingMessage(payload) {
+    async function handleSignalingMessage(payload) { //signaling message received
         if (payload.type === 'offer') {
             incomingOffer = payload;
             document.getElementById("incomingCallBox").style.display = "block";
             document.getElementById("incomingCallBox").style.position = "absolute";
             document.getElementById("incomingCallBox").style.justifySelf = "center";
             document.getElementById("incomingCallBox").style.top = "50px";
-
             // Auto-decline after 60 seconds of ringing
             ringingTimeout = setTimeout(() => {
                 if (incomingOffer) {
-                    console.log('Ringing timeout - auto declining');
+                    //console.log('Ringing timeout - auto declining');
                     declineIncomingCall();
                 }
             }, 60000);
             return;
         }
-        if (payload.type === 'answer' && peerConnection) {
+        if (payload.type === 'answer' && peerConnection) { //caller received answer: he saves sdp of the callee
             if (ringingTimeout) {
                 clearTimeout(ringingTimeout);
                 ringingTimeout = null;
             }
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.sdp)); //save the peer contact information: codec, fingerprint DTLS..
             // Add buffered ICE candidates that arrived before the answer
             for (const candidate of pendingCandidates) {
                 try {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); //register where to reach the callee (host, srflx, relay)
                 } catch (e) {
                     console.warn('Failed to add buffered ICE candidate:', e);
                 }
@@ -1402,15 +1375,15 @@ function app() {
         }
         if (payload.type === 'candidate') {
             // Only add ICE candidates once the remote description is set.
-            // Otherwise buffer them for later (they arrive before the user accepts the call).
+            // Otherwise buffer them for later (they arrive when callee hasn't accepted yet / caller hasn't received answer yet).
             if (peerConnection && peerConnection.remoteDescription) {
                 try {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate));
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate)); // register where to reach the other peer
                 } catch (e) {
                     console.warn('Failed to add ICE candidate:', e);
                 }
             } else {
-                pendingCandidates.push(payload.candidate);
+                pendingCandidates.push(payload.candidate); //buffer
             }
             return;
         }
@@ -1419,13 +1392,20 @@ function app() {
         }
     }
 
-    // Accept an incoming call.
-    // 1. Create a new RTCPeerConnection.
-    // 2. Set the remote description from the stored offer.
-    // 3. Add any buffered ICE candidates that arrived before acceptance.
-    // 4. Get microphone access and add tracks to the connection.
-    // 5. Create an SDP answer and send it back via signaling.
-    async function acceptIncomingCall() {
+    function declineIncomingCall() {
+        if (ringingTimeout) {
+            clearTimeout(ringingTimeout);
+            ringingTimeout = null;
+        }
+        sendSignaling({ type: 'decline' });
+        incomingOffer = null;
+        pendingCandidates = [];
+        document.getElementById("incomingCallBox").style.display = "none";
+    }
+
+
+
+    async function acceptIncomingCall() { //creates RTCPeerConnection, sets the offer as remote description, applies buffered candidates, add local mic, sends candidates and sdp
         if (!incomingOffer) return;
         if (ringingTimeout) {
             clearTimeout(ringingTimeout);
@@ -1433,10 +1413,10 @@ function app() {
         }
         try {
             const ice = await fetchIceServers();
-            peerConnection = new RTCPeerConnection(ice);
+            peerConnection = new RTCPeerConnection(ice);// ice is used to get my (callee) addresses: host, srflx (STUN), relay (TURN)
             // Set up ontrack FIRST to avoid missing remote stream
             peerConnection.ontrack = e => {
-                console.log("REMOTE TRACK:", e.streams[0]?.getTracks());
+                //console.log("REMOTE TRACK:", e.streams[0]?.getTracks());
                 if (!e.streams[0]) {
                     console.error("No remote stream received!");
                     return;
@@ -1450,14 +1430,14 @@ function app() {
                 remoteAudioElement.play().catch(err => console.error("Callee audio failed:", err));
             };
             peerConnection.oniceconnectionstatechange = () => {
-                console.log('ICE connection state:', peerConnection.iceConnectionState);
+                //console.log('ICE connection state:', peerConnection.iceConnectionState);
             };
             peerConnection.onicegatheringstatechange = () => {
-                console.log('ICE gathering state:', peerConnection.iceGatheringState);
+                //console.log('ICE gathering state:', peerConnection.iceGatheringState);
             };
             // Set the caller's offer as our remote description
             await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingOffer.sdp));
-            // Apply any ICE candidates that arrived before we had a peerConnection
+            // Apply buffered ICE candidates that arrived before the callee answered
             for (const candidate of pendingCandidates) {
                 try {
                     await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
@@ -1467,11 +1447,11 @@ function app() {
             }
             pendingCandidates = [];
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            console.log("LOCAL TRACKS:", localStream.getTracks());
+            //console.log("LOCAL TRACKS:", localStream.getTracks());
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
             peerConnection.onicecandidate = e => {
                 if (e.candidate) {
-                    console.log("CANDIDATE:", e.candidate.candidate);
+                    //console.log("CANDIDATE:", e.candidate.candidate);
                     sendSignaling({ type: 'candidate', candidate: e.candidate });
                 }
             };
@@ -1490,21 +1470,7 @@ function app() {
         }
     }
 
-    // Decline an incoming call — send a decline signal and clear state.
-    function declineIncomingCall() {
-        if (ringingTimeout) {
-            clearTimeout(ringingTimeout);
-            ringingTimeout = null;
-        }
-        sendSignaling({ type: 'decline' });
-        incomingOffer = null;
-        pendingCandidates = [];
-        document.getElementById("incomingCallBox").style.display = "none";
-    }
 
-    // End the current call.
-    // Cleans up peer connection, local media, and remote audio element.
-    // Sends a hangup signal unless the hangup was initiated by the remote peer.
     function hangUp(remoteInitiated = false) {
         if (ringingTimeout) {
             clearTimeout(ringingTimeout);
@@ -1535,14 +1501,18 @@ function app() {
         btn.style.backgroundColor = isInCall ? c25 : "";
     }
 
+    document.getElementById("acceptCallBtn").addEventListener("click", acceptIncomingCall);
+    document.getElementById("declineCallBtn").addEventListener("click", declineIncomingCall);
 
 
+    // -----------------chat part
 
     document.getElementById("sendFileBtn").addEventListener("click", () => {
         const fileInput = document.getElementById("fileInput");
         fileInput.value = "";           // allow to select again the last file
         fileInput.click();
     });
+
     document.getElementById("fileInput").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -1560,7 +1530,7 @@ function app() {
             try {
                 const uint8Array = new Uint8Array(reader.result);
                 const ext = file.name.split('.').pop()?.toLowerCase() || "bin";
-                console.log(`📄 File ready → ${file.name} (${uint8Array.byteLength} byte) .${ext}`);
+                //console.log(`📄 File ready → ${file.name} (${uint8Array.byteLength} byte) .${ext}`);
                 lastSentFileInfo = {
                     bytes: uint8Array,
                     ext: ext,
@@ -1584,47 +1554,8 @@ function app() {
     }
 
 
-    function connectChatWebSocket() {
-        console.log("WS OPENING WITH:", roomName, hostToken, joinerToken);
 
-        if (chatWS) {
-            try { chatWS.close(); } catch (e) { }
-        } let token
-        if (userName == "host") {
-            token = hostToken
-        } else if (userName == "joiner") {
-            token = joinerToken
-        }
-        const wsUrl = `wss://${location.host}/ws?roomName=${roomName}&token=${token}`;
 
-        chatWS = new WebSocket(wsUrl);
-        chatWS.onopen = () => {
-            console.log('✅ Chat WebSocket connected (real-time, no polling)');
-        };
-        chatWS.onmessage = async (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'webrtc-signaling') {
-                await handleSignalingMessage(data.payload);
-            } else {
-                await decryptTheMessage(data.message || data);
-            }
-        };
-        chatWS.onclose = () => {
-            console.warn('WebSocket closed. Reconnecting in 2s...');
-            setTimeout(connectChatWebSocket, 2000);
-        };
-        chatWS.onerror = (err) => console.error('WebSocket error:', err);
-    }
-    async function fetchIceServers() {
-        if (iceServers) return iceServers;
-        const token = userName === "host" ? hostToken : joinerToken;
-        if (!token || !roomName) throw new Error("Not authenticated for calls");
-        const response = await fetch(`api/getTurnCredentials?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(token)}`);
-        if (!response.ok) throw new Error("Failed to fetch TURN credentials");
-        const data = await response.json();
-        iceServers = data;
-        return iceServers;
-    }
     document.getElementById("sendMsgBtn").addEventListener("click", () => { encryptTheMessage("msg", document.getElementById("messageInput").value) })
     document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
     document.getElementById("saveChatBtn").addEventListener("click", saveChat)
@@ -1635,12 +1566,6 @@ function app() {
             startCall();
         }
     });
-
-    // Incoming call buttons
-    document.getElementById("acceptCallBtn").addEventListener("click", acceptIncomingCall);
-    document.getElementById("declineCallBtn").addEventListener("click", declineIncomingCall);
-
-
 
 
 
@@ -1655,7 +1580,7 @@ function app() {
                     message: base64EncryptedMsg
                 })
             });
-            if (response.status == "403") {
+            if (response.status == 403) {
                 alert("This chat is lost or deleted.")
                 location.reload()
                 return false
@@ -1681,7 +1606,7 @@ function app() {
     }
 
     async function joinerSendsMessage(base64EncryptedMsg) {
-        console.log(roomName, joinerToken, base64EncryptedMsg)
+        //console.log(roomName, joinerToken, base64EncryptedMsg)
         try {
             const response = await fetch('api/joinerSendsMessage', {
                 method: 'POST',
@@ -1692,7 +1617,7 @@ function app() {
                     message: base64EncryptedMsg
                 })
             });
-            if (response.status == "403") {
+            if (response.status == 403) {
                 alert("This chat is lost or deleted.")
                 location.reload()
                 return false
@@ -1958,7 +1883,6 @@ function app() {
 
     function showFile(fileBytes, ext, user) {
         const ul = document.getElementById('ulChat');
-
         const mimeMap = {
             png: "image/png",
             jpg: "image/jpeg",
@@ -1967,16 +1891,13 @@ function app() {
             webp: "image/webp",
             pdf: "application/pdf"
         };
-
         const mimeType = mimeMap[ext.toLowerCase()] || "application/octet-stream";
         const blob = new Blob([fileBytes], { type: mimeType });
         const url = URL.createObjectURL(blob);
-
         const li = document.createElement('li');
         const a = document.createElement('a');
         a.href = url;
         a.download = `file.${ext}`;
-
         if (mimeType.startsWith("image/")) {
             const img = document.createElement("img");
             img.src = url;
@@ -1989,9 +1910,7 @@ function app() {
             a.style.color = c9;
             a.style.textDecoration = "underline";
         }
-
         li.appendChild(a);
-
         if (user === "partner") {
             li.style.color = c25;
             li.style.textShadow = "1px 1px white";
@@ -2024,7 +1943,6 @@ function app() {
 
 
 
-    // showMsg — minimal changes: normalize styling in one place
     function showMsg(message, user) {
         const ul = document.getElementById('ulChat');
         const li = document.createElement('li');

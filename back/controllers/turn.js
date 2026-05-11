@@ -8,8 +8,8 @@ const TURN_EXPIRY = parseInt(process.env.TURN_CRED_EXPIRY_SECONDS) || 3600;
 const turnCtrl = {
   getTurnCredentials: async (req, res) => {
 
-    console.log("ENV CHECK - TURN_REST_SECRET exists:", !!process.env.TURN_REST_SECRET);
-    console.log("ENV CHECK - TURN_SERVER_URL:", process.env.TURN_SERVER_URL);
+    //console.log("ENV CHECK - TURN_REST_SECRET exists:", !!process.env.TURN_REST_SECRET);
+    //console.log("ENV CHECK - TURN_SERVER_URL:", process.env.TURN_SERVER_URL);
 
     const { roomName, token } = req.query;
     if (!roomName || !token) return res.status(400).json({ error: 'Missing roomName or token' });

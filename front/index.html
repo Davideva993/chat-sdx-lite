@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +8,6 @@
     <script src="argon2-bundled.min.js"></script>
 
 </head>
-
 <body>
     <header>
         <h1>Chat SDX</h1>
@@ -43,7 +41,6 @@
                 <button type="button" id="hostBtnEnd" class="dynamic hostPage">Host this chat</button>
             </span>
         </section>
-
     </header>
     <main>
         <section id="centralSection">
@@ -51,14 +48,14 @@
                 <h2 id="roomNameH2">(here the room name)</h2>
                 <ul id="ulChat"></ul>
                 <div id="incomingCallBox"
-                    style="display: none; background: #111; color: white; padding: 20px; margin: 10px; border-radius: 12px; text-align: center; border: 3px solid #c00;">
+                    style="display: none; background: #1b2330; color: #cfe7ff; padding: 20px; margin: 10px; border-radius: 12px; text-align: center; border: 3px solid #c00;">
                     <h3>📞 Incoming call from your partner</h3>
                     <p id="callStatusText" style="margin: 10px 0; font-size: 1.1em;">Ringing...</p>
                     <button id="acceptCallBtn"
-                        style="background: #0a0; color: white; padding: 12px 30px; font-size: 1.2em; margin: 8px; border: none; border-radius: 8px; cursor: pointer;">✅
+                        style="background: #369900; color: #cfe7ff; padding: 12px 30px; font-size: 1.2em; margin: 8px; border: none; border-radius: 8px; cursor: pointer;">✅
                         Accept</button>
                     <button id="declineCallBtn"
-                        style="background: #c00; color: white; padding: 12px 30px; font-size: 1.2em; margin: 8px; border: none; border-radius: 8px; cursor: pointer;">❌
+                        style="background: #FF0000; color: #cfe7ff; padding: 12px 30px; font-size: 1.2em; margin: 8px; border: none; border-radius: 8px; cursor: pointer;">❌
                         Decline</button>
                 </div>
             </section>
@@ -67,7 +64,7 @@
                 <ul id="savedRooms">
                 </ul>
             </section>
-            <section class="dynamic hostPage stepSection">
+            <section class="dynamic hostPage showcaseSection">
                 <h2>Host a chat: next steps:</h2>
                 <ol>
                     <li>Choose the secrets</li>
@@ -94,30 +91,24 @@
             </article>
             <article class="stepContainer" id="hostInitKeyDrawingContainer">
                 <span class="initKeyImgContainer">
-
                     <img id="initKeyHostImg" src="./assets/initKey.webp" alt="initKey img">
                 </span>
-
                 <p id="initKeyHostLegend"></p>
             </article>
             <article class="stepContainer" id="hostDefKeyDrawingContainer">
                 <span class="defKeyImgContainer">
-
                     <img id="defKeyHostImg" src="./assets/defKey.webp" alt="defKey img">
                 </span>
-
                 <p id="defKeyHostLegend"></p>
             </article>
             <article class="stepContainer" id="hostLockStatusContainer">
                 <span class="lockStatusImgContainer">
-
                     <img id="lockStatusHostImg" src="./assets/unlocked.webp" alt="lock status img">
                 </span>
                 <p id="lockStatusHostLegend"></p>
             </article>
         </section>
-
-        <section class="dynamic joinPage stepSection">
+        <section class="dynamic joinPage showcaseSection">
             <h2>Join a chat: next steps:</h2>
             <ol>
                 <li>Use a temporary secure channel to obtain the room code and secret words</li>
@@ -170,10 +161,9 @@
             </span>
     </main>
     <footer>
-        © 2025 Chat SDX • <a href="https://github.com/Davideva993/Chat-SDX">AGPL-3.0 source</a>
+        © 2025 Chat SDX • <a href="https://github.com/Davideva993/Chat-SDX-lite">AGPL-3.0 source</a>
     </footer>
 
     <script src="script.js"></script>
 </body>
-
 </html>

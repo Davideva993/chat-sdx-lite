@@ -1,0 +1,10 @@
+# Copy to /etc/turnserver.conf and adjust values. static-auth-secret must match TURN_REST_SECRET in .env.
+
+listening-port=3478
+listening-ip=0.0.0.0
+external-ip=your_server_ip
+relay-ip=your_server_ip
+realm=yourdomain.com
+log-file=/var/log/turnserver/turn.log
+use-auth-secret
+static-auth-secret=1234Secret92749201938472829103 
