@@ -25,6 +25,8 @@ function app() {
     const c25 = "#FF0000"
     const c26 = "#369900"
     const c8 = "#4db8ff";
+    let autosave = true;
+    let hasUnsavedMessages = false;
     let userName
     let tempKey
     let keyPair
@@ -51,6 +53,21 @@ function app() {
     hostBtnEnd.addEventListener("click", hostSetupAndRegisterARoom)
     joinBtnEnd.addEventListener("click", joinerSetupAndFindsRoom)
     reloadButton.addEventListener("click", () => { location.reload() })
+
+    if (autosave) {
+        window.addEventListener("beforeunload", function(e) {
+            if (hasUnsavedMessages) {
+                e.preventDefault();
+                e.returnValue = '';
+                const msg = "WARNING: You have unsaved messages. The encryption keys have already advanced past the last save point. If you leave now, the chat CAN be restored from the saved state, but the keys will be DESYNCED and the conversation will be permanently broken.";
+                setTimeout(() => {
+                    if (confirm(msg)) {
+                        saveChat();
+                    }
+                }, 100);
+            }
+        });
+    }
 
     // IndexedDB helpers
     function openDB() {
@@ -193,6 +210,7 @@ function app() {
             };
             await dbPut(roomName, conversationEntry[roomName]);
             await displaySavedRooms()
+            hasUnsavedMessages = false;
             alert(`✅ Conversation "${roomName}" saved successfully!`);
             //console.log(`Saved conversation: ${roomName}`);
             return true;
@@ -1290,6 +1308,8 @@ function app() {
             const data = JSON.parse(event.data);
             if (data.type === 'webrtc-signaling') {
                 await handleSignalingMessage(data.payload);
+            } else if (data.type === 'user-online') {
+                showSystemMessage(`🔵 ${data.user === 'host' ? 'Host' : 'Partner'} is back online`);
             } else {
                 await decryptTheMessage(data.message || data);
             }
@@ -1634,7 +1654,7 @@ function app() {
                 return false
             }
             if (response.status === 429) {
-                alert("Too many pending messages, please wait...");
+                alert("Your partner is offline. Max 3 pending messages allowed.");
                 return false;
             }
             if (!response.ok) {
@@ -1643,7 +1663,9 @@ function app() {
             }
             const data = await response.json();
             sendOk = true
-
+            if (data.pending) {
+                alert("Your partner is offline. Message saved — will be delivered when they reconnect.");
+            }
 
             return true;
 
@@ -1671,7 +1693,7 @@ function app() {
                 return false
             }
             if (response.status === 429) {
-                alert("Too many pending messages, please wait...");
+                alert("Your partner is offline. Max 3 pending messages allowed.");
                 return false;
             }
             if (!response.ok) {
@@ -1680,8 +1702,9 @@ function app() {
             }
             const data = await response.json();
             sendOk = true
-
-
+            if (data.pending) {
+                alert("Your partner is offline. Message saved — will be delivered when they reconnect.");
+            }
 
             return true;
         } catch (error) {
@@ -1842,6 +1865,7 @@ function app() {
                     addTextMessage(message, "me");
                 }
                 sendOk = false;
+                hasUnsavedMessages = true;
                 // ratchet update for cumulativeNonce (maintain 16 bytes)
                 if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
                     cumulativeNonce = derivationNonce;
@@ -1895,6 +1919,7 @@ function app() {
                     const hash = await crypto.subtle.digest("SHA-256", combined);
                     cumulativeNonce = new Uint8Array(hash).slice(0, 16);
                 }
+                hasUnsavedMessages = true;
                 currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
                 return;
             } else {
@@ -1920,6 +1945,7 @@ function app() {
                     const hash = await crypto.subtle.digest("SHA-256", combined);
                     cumulativeNonce = new Uint8Array(hash).slice(0, 16);
                 }
+                hasUnsavedMessages = true;
                 currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
                 return;
             }
@@ -1991,6 +2017,16 @@ function app() {
 
 
 
+    function showSystemMessage(text) {
+        const ul = document.getElementById('ulChat');
+        const li = document.createElement('li');
+        li.textContent = text;
+        li.style.fontStyle = "italic";
+        li.style.color = "#888";
+        li.style.fontSize = "small";
+        ul.appendChild(li);
+    }
+
     function showMsg(message, user) {
         const ul = document.getElementById('ulChat');
         const li = document.createElement('li');
@@ -2025,6 +2061,8 @@ function app() {
                 body: JSON.stringify({ token, roomName })
             });
             if (res.status === 403 || res.status === 200) {
+                hasUnsavedMessages = false;
+                autosave = false;
                 alert("This chat is lost or deleted.")
                 location.reload()
                 return

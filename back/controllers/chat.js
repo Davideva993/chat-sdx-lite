@@ -26,9 +26,9 @@ hostSendsMessage: async (req, res) => {
     const myPending = await Message.count({ 
         where: { roomName, sender: 'host' } 
     });
-    if (myPending >= 6) {
+    if (myPending >= 3) {
         return res.status(429).json({ 
-            error: 'Your partner has 6 pending messages: please wait a moment' 
+            error: 'Your partner is offline. Max 3 pending messages allowed.' 
         });
     }
     const order = myPending;
@@ -44,14 +44,12 @@ hostSendsMessage: async (req, res) => {
       'host'
     );
     if (!sent) {
-      return res.status(500).json({
-        error: "Message saved but failed to deliver to joiner via WS"
-      });
+      return res.json({ success: true, pending: true });
     }
     await Message.destroy({
       where: { roomName, order, sender: "host" }
     });
-    res.json({ success: true });
+    res.json({ success: true, pending: false });
   },
 
 joinerSendsMessage: async (req, res) => {
@@ -76,9 +74,9 @@ joinerSendsMessage: async (req, res) => {
     const myPending = await Message.count({ 
         where: { roomName, sender: 'joiner' } 
     });
-    if (myPending >= 6) {
+    if (myPending >= 3) {
         return res.status(429).json({ 
-            error: 'Your partner has 6 pending messages: please wait a moment' 
+            error: 'Your partner is offline. Max 3 pending messages allowed.' 
         });
     }
     const order = myPending;
@@ -96,16 +94,14 @@ joinerSendsMessage: async (req, res) => {
      );
 
      if (!sent) {
-       return res.status(500).json({
-         error: "Message saved but failed to deliver to host via WS"
-       });
+       return res.json({ success: true, pending: true });
      }
 
      await Message.destroy({
        where: { roomName, order, sender: "joiner" }
      });
 
-     res.json({ success: true });
+     res.json({ success: true, pending: false });
   },
 
 

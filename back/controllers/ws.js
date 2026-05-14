@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { Room } from '../models/db.js';
+import { Room, Message } from '../models/db.js';
 
 const activeRooms = new Map();
 const webSocketController = {
@@ -79,6 +79,30 @@ const webSocketController = {
           console.error('Invalid WebSocket message:', e);
         }
       });
+      // Deliver pending messages to the reconnecting user
+      const receiverRole = role === 'host' ? 'joiner' : 'host';
+      const pendingMessages = await Message.findAll({
+        where: { roomName, sender: receiverRole },
+        order: [['id', 'ASC']]
+      });
+      if (pendingMessages.length > 0) {
+        for (const msg of pendingMessages) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              message: msg.message,
+              order: msg.order,
+              sender: msg.sender
+            }));
+          }
+        }
+        await Message.destroy({ where: { roomName, sender: receiverRole } });
+      }
+      // Notify the other user that this user reconnected
+      const otherRole = role === 'host' ? 'joiner' : 'host';
+      const otherWS = roomSockets[`${otherRole}WS`];
+      if (otherWS && otherWS.readyState === WebSocket.OPEN) {
+        otherWS.send(JSON.stringify({ type: 'user-online', user: role }));
+      }
     } catch (e) {
       console.error('WebSocket connection error:', e);
       ws.close(4003, 'Server error');
