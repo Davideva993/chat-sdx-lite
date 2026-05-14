@@ -52,10 +52,60 @@ function app() {
     joinBtnEnd.addEventListener("click", joinerSetupAndFindsRoom)
     reloadButton.addEventListener("click", () => { location.reload() })
 
+    // IndexedDB helpers
+    function openDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open("ChatSDX", 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains("conversations")) {
+                    db.createObjectStore("conversations", { keyPath: "roomName" });
+                }
+            };
+            request.onsuccess = (e) => resolve(e.target.result);
+            request.onerror = (e) => reject(e.target.error);
+        });
+    }
 
+    async function dbGetAll() {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("conversations", "readonly");
+            const store = tx.objectStore("conversations");
+            const request = store.getAll();
+            request.onsuccess = () => {
+                const result = {};
+                request.result.forEach(item => { result[item.roomName] = item.data; });
+                resolve(result);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async function dbPut(roomName, data) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("conversations", "readwrite");
+            const store = tx.objectStore("conversations");
+            store.put({ roomName, data });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async function dbDelete(roomName) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("conversations", "readwrite");
+            const store = tx.objectStore("conversations");
+            store.delete(roomName);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    }
 
     // Save-load chat part: 
-    //  Save: user enters a password generates an AES (argon2) to encrypt the message and sensitive conversation data and store in localStorage. RoomName is encrypted ans stored too. AES and password aren't stored.
+    //  Save: user enters a password generates an AES (argon2) to encrypt the message and sensitive conversation data and store in IndexedDB. RoomName is encrypted ans stored too. AES and password aren't stored.
     //  Load: user enters the password and to generate the AES exactly as in the "save part". Then try to encrypt the roomName and compare with the encrypted roomName. If matches, password (and AES) are right so chipertext will be decrypted.   
     async function saveChat() {
         const pwd = prompt("Enter a password... and don't forget it");
@@ -141,10 +191,8 @@ function app() {
                     ciphertext: Array.from(new Uint8Array(encryptedBuffer))
                 }
             };
-            let myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
-            myConversations[roomName] = conversationEntry[roomName];
-            localStorage.setItem("myConversations", JSON.stringify(myConversations));
-            displaySavedRooms()
+            await dbPut(roomName, conversationEntry[roomName]);
+            await displaySavedRooms()
             alert(`✅ Conversation "${roomName}" saved successfully!`);
             //console.log(`Saved conversation: ${roomName}`);
             return true;
@@ -156,10 +204,10 @@ function app() {
     }
 
 
-    function displaySavedRooms() {
+    async function displaySavedRooms() {
         const ul = document.getElementById("savedRooms")
         ul.innerHTML = ""
-        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}")
+        const myConversations = await dbGetAll()
         if (Object.keys(myConversations).length == 0) {
             ul.innerHTML = "<li>No saved conversations</li>"
         }
@@ -188,10 +236,10 @@ function app() {
     }
 
     async function restoreSavedRoom(room) {
-        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}")
+        const myConversations = await dbGetAll()
         const saved = myConversations[room]
         if (!saved) {
-            alert("Room not found in localStorage")
+            alert("Room not found")
             return
         }
         await loadChat(room)
@@ -202,7 +250,7 @@ function app() {
             alert("Room name is required.");
             return false;
         }
-        const myConversations = JSON.parse(localStorage.getItem("myConversations") || "{}");
+        const myConversations = await dbGetAll();
         const savedChat = myConversations[requestedRoomName];
         if (!savedChat) {
             //console.log(savedChat)
@@ -632,7 +680,7 @@ function app() {
             alert("Secret code not valid")
             return
         }
-        fetch('api/hostRegistersRoom', {
+        fetch('http://localhost:3006/api/hostRegistersRoom', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
         })
@@ -658,7 +706,7 @@ function app() {
 
     //2)The host asks each 1,5s if the other user (joiner) joined the room.
     function hostAsksForJoiner() {
-        fetch('api/hostAsksForJoiner', {
+        fetch('http://localhost:3006/api/hostAsksForJoiner', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -736,7 +784,7 @@ function app() {
     }
 
     function joinerFindsRoom() {
-        fetch('api/joinerFindsRoom', {
+        fetch('http://localhost:3006/api/joinerFindsRoom', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -841,7 +889,7 @@ function app() {
     }
     async function hostSendsEncryptedInitKeyAndNonce(encryptedInitKey) {
         timer("host", "start")
-        fetch('api/hostSendsEncryptedInitKeyAndNonce', {
+        fetch('http://localhost:3006/api/hostSendsEncryptedInitKeyAndNonce', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -868,7 +916,7 @@ function app() {
     //5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey
     function joinerAsksForEncryptedInitKeyAndNonce() {
         stepsAnimation("initKey", "joiner", "completed")
-        fetch('api/joinerAsksForEncryptedInitKeyAndNonce', {
+        fetch('http://localhost:3006/api/joinerAsksForEncryptedInitKeyAndNonce', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -966,7 +1014,7 @@ function app() {
             const base64EncryptedDefKey = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
             showBorderEffect("joiner", "defKeyImgContainer");
             // Send to server
-            await fetch('api/joinerSendsEncryptedDefKey', {
+            await fetch('http://localhost:3006/api/joinerSendsEncryptedDefKey', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -991,7 +1039,7 @@ function app() {
 
     //7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
     function hostAsksForEncryptedDefKey() {
-        fetch('api/hostAsksForEncryptedDefKey', {
+        fetch('http://localhost:3006/api/hostAsksForEncryptedDefKey', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1108,7 +1156,7 @@ function app() {
 
 
     function hostSendsEncryptedSecret(base64EncryptedHash) {
-        fetch('api/hostSendsEncryptedSecret', {
+        fetch('http://localhost:3006/api/hostSendsEncryptedSecret', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1133,7 +1181,7 @@ function app() {
     async function joinerAsksForEncryptedSecret() {
         try {
             stepsAnimation("validated", "joiner", "completed")
-            const response = await fetch('api/joinerAsksForEncryptedSecret', {
+            const response = await fetch('http://localhost:3006/api/joinerAsksForEncryptedSecret', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1233,7 +1281,7 @@ function app() {
         } else if (userName == "joiner") {
             token = joinerToken
         }
-        const wsUrl = `wss://${location.host}/ws?roomName=${roomName}&token=${token}`;
+        const wsUrl = `ws://localhost:3006/ws?roomName=${roomName}&token=${token}`;
         chatWS = new WebSocket(wsUrl); //upgrade to websocket
         chatWS.onopen = () => {
             //console.log('✅ Chat WebSocket connected (real-time, no polling)');
@@ -1275,7 +1323,7 @@ function app() {
         if (iceServers) return iceServers;
         const token = userName === "host" ? hostToken : joinerToken;
         if (!token || !roomName) throw new Error("Not authenticated for calls");
-        const response = await fetch(`api/getTurnCredentials?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(token)}`);
+        const response = await fetch(`http://localhost:3006/api/getTurnCredentials?roomName=${encodeURIComponent(roomName)}&token=${encodeURIComponent(token)}`);
         if (!response.ok) throw new Error("Failed to fetch TURN credentials");
         const data = await response.json();
         iceServers = data;
@@ -1571,7 +1619,7 @@ function app() {
 
     async function hostSendsMessage(base64EncryptedMsg) {
         try {
-            const response = await fetch('api/hostSendsMessage', {
+            const response = await fetch('http://localhost:3006/api/hostSendsMessage', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1608,7 +1656,7 @@ function app() {
     async function joinerSendsMessage(base64EncryptedMsg) {
         //console.log(roomName, joinerToken, base64EncryptedMsg)
         try {
-            const response = await fetch('api/joinerSendsMessage', {
+            const response = await fetch('http://localhost:3006/api/joinerSendsMessage', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1970,7 +2018,8 @@ function app() {
             token = joinerToken
         }
         try {
-            const res = await fetch('api/deleteRoom', {
+            await dbDelete(roomName).catch(() => {}) // remove from IndexedDB
+            const res = await fetch('http://localhost:3006/api/deleteRoom', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, roomName })

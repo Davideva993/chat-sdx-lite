@@ -51,7 +51,7 @@ const webSocketController = {
       }
       // Store the socket
       if (!activeRooms.has(roomName)) {
-        activeRooms.set(roomName, { hostWS: null, joinerWS: null });
+        activeRooms.set(roomName, { hostWS: null, joinerWS: null, lastMsgAt: null });
       }
       const roomSockets = activeRooms.get(roomName);
       roomSockets[`${role}WS`] = ws;
@@ -61,7 +61,9 @@ const webSocketController = {
         if (roomSockets[`${role}WS`] === ws) {
           roomSockets[`${role}WS`] = null;
         }
-        if (!roomSockets.hostWS && !roomSockets.joinerWS) {
+        const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        if ((!roomSockets.hostWS && !roomSockets.joinerWS) &&
+            (roomSockets.lastMsgAt && roomSockets.lastMsgAt < weekAgo)) {
           activeRooms.delete(roomName);
         }
       });
@@ -93,6 +95,8 @@ const webSocketController = {
   broadcastMessage(roomName, messageObj, sender) {
     const roomSockets = activeRooms.get(roomName);
     if (!roomSockets) return;
+
+    roomSockets.lastMsgAt = Date.now(); 
 
     const receiverRole = sender === 'host' ? 'joiner' : 'host';
     const receiverWS = roomSockets[`${receiverRole}WS`];

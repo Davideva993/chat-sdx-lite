@@ -1,8 +1,7 @@
 import { Room, Message } from '../models/db.js';
 import { Op } from 'sequelize';
 const timers = {};
-import webSocketController from './webSocketController.js';
-
+import ws from './ws.js'
 
 const chatCtrl = {
 hostSendsMessage: async (req, res) => {
@@ -12,6 +11,16 @@ hostSendsMessage: async (req, res) => {
     }
     const room = await Room.findOne({ where: { roomName, hostToken } });
     if (!room) {
+        const targetRoom = await Room.findOne({ where: { roomName } });
+        if (targetRoom) {
+            const failedAuthAttemps = targetRoom.failedAuth || 0;
+            if (failedAuthAttemps >= 3) {
+                await Message.destroy({ where: { roomName } });
+                await targetRoom.destroy();
+                return res.status(403).json({ error: 'The room was destroyed because 3 failed attempts were detected' });
+            }
+            await targetRoom.update({ failedAuth: failedAuthAttemps + 1 });
+        }
         return res.status(403).json({ error: 'Invalid room or hostToken' });
     }
     const myPending = await Message.count({ 
@@ -29,21 +38,19 @@ hostSendsMessage: async (req, res) => {
         message, 
         order 
     });
-try {
-      webSocketController.broadcastMessage(
-        roomName, 
-        { message, order, sender: 'host' }, 
-        'host'   // send to the joiner
-      );
-      await Message.destroy({
-        where: { roomName, order, sender: "host" }
-      });
-    } catch (err) {
-      console.error("WebSocket error (host):", err);
-      return res.status(500).json({ 
-        error: "Message saved but failed to deliver to joiner via WS" 
+    const sent = ws.broadcastMessage(
+      roomName, 
+      { message, order, sender: 'host' }, 
+      'host'
+    );
+    if (!sent) {
+      return res.status(500).json({
+        error: "Message saved but failed to deliver to joiner via WS"
       });
     }
+    await Message.destroy({
+      where: { roomName, order, sender: "host" }
+    });
     res.json({ success: true });
   },
 
@@ -82,7 +89,7 @@ joinerSendsMessage: async (req, res) => {
         order 
     });
 
-     const sent = webSocketController.broadcastMessage(
+     const sent = ws.broadcastMessage(
        roomName,
        { message, order, sender: 'joiner' },
        'joiner'
