@@ -41,6 +41,7 @@ Frontend is served by the Node server as static files.
 ## Deploy
 
 All components run on the same VDS. Requires Node.js. Coturn recommended for VoIP relay behind NAT. Reverse proxy (Apache/Nginx) optional.
+Can be deployed with Docker (node and coturn services).
 
 ## Config
 
