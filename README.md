@@ -9,7 +9,7 @@ Compared to the original:
 - **Added** encrypted save/load of conversations (original was ephemeral)
 - **Added** file sending (up to ~1 MB per file, padded to 1 MiB)
 - **Added** Database SQLite via Sequelize (instead of the ephemeral in-memory database)
- **Changed** padding — files are padded to exactly 1 MiB, messages to ~420–500 bytes, so an observer can tell a message from a file by size (original didn't send files)
+- **Changed** padding — files are padded to exactly 1 MiB, messages to ~420–500 bytes, so an observer can tell a message from a file by size (original didn't send files)
 - **Kept** the same key exchange (Argon2id + RSA-OAEP 4096) and key ratcheting
 
 **Message structure:** `[3-digit length][real message][padding]` → encrypted with currentDefKey + `[32B next AES key][16B derivation nonce]`
