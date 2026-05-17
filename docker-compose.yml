@@ -1,0 +1,24 @@
+services:
+  # ---- Node.js backend (Express + WebSocket) ----
+  node:
+    build:
+      context: .          
+      dockerfile: Dockerfile
+    container_name: chat-node
+    # Expose port 3006 on localhost only (Apache proxy accesses it via 127.0.0.1:3006)
+    ports:
+      - "127.0.0.1:3006:3006"
+    env_file:
+      - ./back/.env
+    restart: unless-stopped
+
+  # ---- Coturn TURN/STUN server for VoIP ----
+  coturn:
+    image: coturn/coturn:latest
+    container_name: chat-coturn
+    # Host networking: this container sees VDS network interfaces directly
+    network_mode: host
+    # Mount turnserver.conf from the same directory of docker-compose.yml
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    restart: unless-stopped
