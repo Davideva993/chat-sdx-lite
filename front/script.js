@@ -12,7 +12,7 @@
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
 -The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts a message (3 digits indicating the message length + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 006Hello!awefTRe47...) or a file (4-char file ext + 7-digit length + file bytes + padding up to 1 MiB) + a 32 byte fresh AES (next AES key) + a 16 byte nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+10)The sender encrypts a message (3 digits indicating the message length + the realMessage + padding to exactly 1024 bytes, e.g., 006Hello!<random bytes>) or a file (4-char file ext + 7-digit length + file bytes + padding up to 1 MiB) + a 32 byte fresh AES (next AES key) + a 16 byte nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.  
             
 */
@@ -379,7 +379,7 @@ function app() {
                 }
             });
             alert(`✅ Conversation "${requestedRoomName}" loaded and decrypted successfully !`);
-            //console.log(`Loaded encrypted conversation: ${requestedRoomName}`);
+            hasUnsavedMessages = true;
             updateDynamicElements("chatPage");
             if (chatWS) {
                 try { chatWS.close(); } catch (e) { }
@@ -1742,24 +1742,13 @@ function app() {
 
     function generatePadding(length) {
         if (length <= 0) return new Uint8Array(0);
-        const allowedCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        const allowedLen = allowedCharacters.length;
-        const paddingBytes = new Uint8Array(length);
-        const CHUNK_SIZE = 65536;                    //  getRandomValues limit
-        let offset = 0;
-        const tempChunk = new Uint8Array(CHUNK_SIZE);
-        while (offset < length) {
-            const remaining = length - offset;
-            const currentChunkSize = Math.min(CHUNK_SIZE, remaining);
-            const chunkView = tempChunk.subarray(0, currentChunkSize);
-            crypto.getRandomValues(chunkView);
-            for (let i = 0; i < currentChunkSize; i++) {
-                const randomIndex = chunkView[i] % allowedLen;
-                paddingBytes[offset + i] = allowedCharacters.charCodeAt(randomIndex);
-            }
-            offset += currentChunkSize;
+        const padding = new Uint8Array(length);
+        const CHUNK = 65536;
+        for (let offset = 0; offset < length; offset += CHUNK) {
+            const end = Math.min(offset + CHUNK, length);
+            crypto.getRandomValues(padding.subarray(offset, end));
         }
-        return paddingBytes;
+        return padding;
     }
 
 
@@ -1782,13 +1771,16 @@ function app() {
                 alert("The message is empty.");
                 return;
             }
-            const charactersNeededForPadding = 423 - 3 - content.length; // 3 chars prefix (content.length)
-            const extraPaddingLength = Math.floor(Math.random() * 80);
-            const paddingBytes = generatePadding(charactersNeededForPadding + extraPaddingLength);
-            const messageLength3Chars = String(content.length).padStart(3, "0");
-            const paddingString = new TextDecoder().decode(paddingBytes)
-            const fullString = messageLength3Chars + content + paddingString;
-            finalPlaintext = new TextEncoder().encode(fullString);
+            const messageBytes = new TextEncoder().encode(String(content.length).padStart(3, "0") + content);
+            const FIXED_SIZE = 1024;
+            if (messageBytes.byteLength > FIXED_SIZE) {
+                console.warn("Message too long. Please make it shorter or split it.");
+                return;
+            }
+            const paddingBytes = generatePadding(FIXED_SIZE - messageBytes.byteLength);
+            finalPlaintext = new Uint8Array(FIXED_SIZE);
+            finalPlaintext.set(messageBytes, 0);
+            finalPlaintext.set(paddingBytes, messageBytes.byteLength);
         }
         else if (msgOrFileOrCall === "file") {
             const MAX_BYTES = 1048576 - 11; //1 mb - prefix size (11:4 for extension + 7 for length) pdf-0048576 or jpeg1018576
@@ -1838,8 +1830,8 @@ function app() {
             payload.set(finalPlaintext, 0);
             payload.set(nextAesRaw, finalPlaintext.byteLength); // nextAesRaw is 32 bytes
             payload.set(derivationNonce, finalPlaintext.byteLength + 32);/*
-            Case "msg": payload = [3-digit length + message + random padding] + [32 byte next AES key] + [16 byte derivationNonce]
-            Case "file": payload = [4-char ext + 7-digit length + file bytes + padding up to 1 MiB] + [32 byte next AES key] + [16 byte derivationNonce]*/
+            Case "msg": payload = [3-digit length + message + random padding to 1024 bytes] + [32 byte next AES key] + [16 byte derivationNonce]
+            Case "file": payload = [4-char ext + 7-digit length + file bytes + padding to 1 MiB] + [32 byte next AES key] + [16 byte derivationNonce]*/
             const iv = crypto.getRandomValues(new Uint8Array(12));
             const encrypted = await crypto.subtle.encrypt(
                 { name: 'AES-GCM', iv },
@@ -1899,7 +1891,7 @@ function app() {
             const totalFixed = 32 + 16; //decrypted payload structure: [content] + [32 byte next AES key] + [16 byte derivationNonce]
             const msgLength = full.byteLength - totalFixed;
             if (msgLength < 0) throw new Error("Corrupted payload");
-            const msgBytes = full.slice(0, msgLength);           // payload of message/file: [3-digit length + message + random padding] or [4-char ext + 7-digit length + file bytes + padding up to 1 MiB]
+            const msgBytes = full.slice(0, msgLength);           // payload of message/file: [3-digit length + message + padding to 1024 bytes] or [4-char ext + 7-digit length + file bytes + padding to 1 MiB]
             const nextAesRaw = full.slice(msgLength, msgLength + 32);
             const derivationNonce = full.slice(msgLength + 32);
             const first3 = new TextDecoder("utf-8", { fatal: false }).decode(msgBytes.slice(0, 3));
