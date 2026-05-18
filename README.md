@@ -9,6 +9,7 @@ Compared to the original:
 - **Added** encrypted save/load of conversations (original was ephemeral)
 - **Added** file sending (up to ~1 MB per file, padded to 1 MiB)
  **Changed** padding — files are padded to exactly 1 MiB, messages to exactly 1024 bytes, so an observer can tell a message from a file by size (original didn't send files)
+- **Added** Database SQLite via Sequelize (instead of the ephemeral in-memory database)
 - **Kept** the same key exchange (Argon2id + RSA-OAEP 4096) and key ratcheting
 
 **Message structure:** `[3-digit length][real message][padding to 1024 bytes]` → encrypted with currentDefKey + `[32B next AES key][16B derivation nonce]`
@@ -40,6 +41,7 @@ Frontend is served by the Node server as static files.
 ## Deploy
 
 All components run on the same VDS. Requires Node.js. Coturn recommended for VoIP relay behind NAT. Reverse proxy (Apache/Nginx) optional.
+Can be deployed with Docker (node and coturn services).
 
 ## Config
 
